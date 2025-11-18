@@ -42,38 +42,66 @@ export const useWebRTC = (
   };
 
   // Initialize local media stream
-  const initializeMedia = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      
-      // Add user to participants
-      if (firestore) {
-        await addDoc(collection(firestore, 'rooms', roomId, 'participants'), {
-          userId,
-          userName,
-          isHost,
-          joinedAt: new Date(),
-          audioEnabled: true,
-          videoEnabled: true,
-          handRaised: false,
+  const initializeMedia = useCallback(async (isObserver: boolean = false) => {
+    let stream: MediaStream;
+
+    if (isObserver) {
+      stream = new MediaStream();
+      setIsAudioEnabled(false);
+      setIsVideoEnabled(false);
+    } else {
+      let videoStream: MediaStream | undefined;
+      let audioStream: MediaStream | undefined;
+
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720 },
         });
+      } catch (error) {
+        console.error('Video access denied:', error);
       }
-      
-      return stream;
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-      throw error;
+
+      try {
+        audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch (error) {
+        console.error('Audio access denied:', error);
+      }
+
+      stream = new MediaStream();
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => stream.addTrack(track));
+      }
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => stream.addTrack(track));
+      }
+
+      setIsAudioEnabled(stream.getAudioTracks().length > 0);
+      setIsVideoEnabled(stream.getVideoTracks().length > 0);
     }
+
+    localStreamRef.current = stream;
+    setLocalStream(stream);
+
+    // Add user to participants
+    if (firestore) {
+      await addDoc(collection(firestore, 'rooms', roomId, 'participants'), {
+        userId,
+        userName,
+        isHost,
+        joinedAt: new Date(),
+        audioEnabled: stream.getAudioTracks().length > 0,
+        videoEnabled: stream.getVideoTracks().length > 0,
+        handRaised: false,
+      });
+    }
+
+    return stream;
   }, [firestore, roomId, userId, userName, isHost]);
 
   // Create peer connection
@@ -163,7 +191,14 @@ export const useWebRTC = (
     const pc = peersRef.current.get(signal.from)?.connection || createPeerConnection(signal.from);
     
     try {
-      await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+      if (pc.signalingState !== 'stable') {
+        await Promise.all([
+          pc.setLocalDescription({ type: 'rollback' }),
+          pc.setRemoteDescription(new RTCSessionDescription(signal.data))
+        ]);
+      } else {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+      }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
@@ -207,42 +242,102 @@ export const useWebRTC = (
 
   // Toggle audio
   const toggleAudio = useCallback(async () => {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioEnabled(audioTrack.enabled);
-        
+    if (!localStreamRef.current) return;
+
+    const audioTracks = localStreamRef.current.getAudioTracks();
+    if (audioTracks.length > 0) {
+      const enabled = !audioTracks[0].enabled;
+      audioTracks.forEach(track => { track.enabled = enabled; });
+      setIsAudioEnabled(enabled);
+
+      // Update participant status
+      if (firestore) {
+        const participantsRef = collection(firestore, 'rooms', roomId, 'participants');
+        const q = query(participantsRef, where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        snapshot.forEach(doc => {
+          updateDoc(doc.ref, { audioEnabled: enabled });
+        });
+      }
+    } else {
+      // Try to add audio if not present
+      try {
+        const newAudioStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        newAudioStream.getTracks().forEach(track => {
+          localStreamRef.current!.addTrack(track);
+          // Add to all peers
+          peersRef.current.forEach(({ connection }) => {
+            connection.addTrack(track, localStreamRef.current!);
+          });
+        });
+        setIsAudioEnabled(true);
         // Update participant status
         if (firestore) {
           const participantsRef = collection(firestore, 'rooms', roomId, 'participants');
           const q = query(participantsRef, where('userId', '==', userId));
           const snapshot = await getDocs(q);
           snapshot.forEach(doc => {
-            updateDoc(doc.ref, { audioEnabled: audioTrack.enabled });
+            updateDoc(doc.ref, { audioEnabled: true });
           });
         }
+      } catch (error) {
+        console.error('Failed to add audio:', error);
+        throw error;
       }
     }
   }, [firestore, roomId, userId]);
 
   // Toggle video
   const toggleVideo = useCallback(async () => {
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoEnabled(videoTrack.enabled);
-        
+    if (!localStreamRef.current) return;
+
+    const videoTracks = localStreamRef.current.getVideoTracks();
+    if (videoTracks.length > 0) {
+      const enabled = !videoTracks[0].enabled;
+      videoTracks.forEach(track => { track.enabled = enabled; });
+      setIsVideoEnabled(enabled);
+
+      // Update participant status
+      if (firestore) {
+        const participantsRef = collection(firestore, 'rooms', roomId, 'participants');
+        const q = query(participantsRef, where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        snapshot.forEach(doc => {
+          updateDoc(doc.ref, { videoEnabled: enabled });
+        });
+      }
+    } else {
+      // Try to add video if not present
+      try {
+        const newVideoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720 },
+        });
+        newVideoStream.getTracks().forEach(track => {
+          localStreamRef.current!.addTrack(track);
+          // Add to all peers
+          peersRef.current.forEach(({ connection }) => {
+            connection.addTrack(track, localStreamRef.current!);
+          });
+        });
+        setIsVideoEnabled(true);
         // Update participant status
         if (firestore) {
           const participantsRef = collection(firestore, 'rooms', roomId, 'participants');
           const q = query(participantsRef, where('userId', '==', userId));
           const snapshot = await getDocs(q);
           snapshot.forEach(doc => {
-            updateDoc(doc.ref, { videoEnabled: videoTrack.enabled });
+            updateDoc(doc.ref, { videoEnabled: true });
           });
         }
+      } catch (error) {
+        console.error('Failed to add video:', error);
+        throw error;
       }
     }
   }, [firestore, roomId, userId]);
@@ -346,7 +441,9 @@ export const useWebRTC = (
         
         // Create offer for new participants (if we're already in the room)
         if (data.userId !== userId && localStreamRef.current && !peersRef.current.has(data.userId)) {
-          createOffer(data.userId);
+          if (userId > data.userId) {
+            createOffer(data.userId);
+          }
         }
       });
       
