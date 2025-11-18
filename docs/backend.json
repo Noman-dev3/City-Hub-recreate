@@ -1,0 +1,299 @@
+
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Represents a user's profile information.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user's unique ID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address."
+        },
+        "fullName": {
+          "type": "string",
+          "description": "The user's full name."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "student",
+            "teacher"
+          ],
+          "description": "The user's role in the system."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "fullName",
+        "role"
+      ]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Represents a quiz created by a teacher.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the quiz."
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the quiz."
+        },
+        "creatorId": {
+          "type": "string",
+          "description": "The UID of the teacher who created the quiz."
+        },
+        "classIds": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "A list of class IDs this quiz is assigned to."
+        },
+        "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The timestamp when the quiz was created."
+        }
+      },
+      "required": [
+        "title",
+        "creatorId",
+        "createdAt"
+      ]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Represents a single question within a quiz.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The question text."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "mcq",
+            "true_false",
+            "short_answer"
+          ],
+          "description": "The type of question."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "A list of options for multiple-choice questions."
+        },
+        "correctAnswer": {
+          "type": "string",
+          "description": "The correct answer for the question."
+        }
+      },
+      "required": [
+        "text",
+        "type",
+        "correctAnswer"
+      ]
+    },
+    "QuizSubmission": {
+      "title": "Quiz Submission",
+      "description": "Represents a student's submission for a quiz.",
+      "type": "object",
+      "properties": {
+        "quizId": {
+          "type": "string",
+          "description": "The ID of the quiz being submitted."
+        },
+        "studentId": {
+          "type": "string",
+          "description": "The UID of the student who submitted the quiz."
+        },
+        "answers": {
+          "type": "object",
+          "description": "An object where keys are question IDs and values are the student's answers."
+        },
+        "score": {
+          "type": "number",
+          "description": "The calculated score for the submission."
+        },
+        "totalQuestions": {
+            "type": "number",
+            "description": "The total number of questions in the quiz."
+        },
+        "submittedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The timestamp when the submission was made."
+        }
+      },
+      "required": [
+        "quizId",
+        "studentId",
+        "answers",
+        "score",
+        "totalQuestions",
+        "submittedAt"
+      ]
+    },
+    "Notification": {
+        "title": "Notification",
+        "description": "Represents a notification for a user.",
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "The title of the notification."
+            },
+            "body": {
+                "type": "string",
+                "description": "The body content of the notification."
+            },
+            "link": {
+                "type": "string",
+                "description": "A URL to navigate to when the notification is clicked."
+            },
+            "read": {
+                "type": "boolean",
+                "description": "Whether the user has read the notification."
+            },
+            "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "The timestamp when the notification was created."
+            }
+        },
+        "required": ["title", "body", "link", "read", "createdAt"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "Represents a class created by a teacher.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the class."
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the class."
+        },
+        "teacherId": {
+          "type": "string",
+          "description": "The UID of the teacher who created the class."
+        },
+        "studentIds": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "A list of UIDs of students enrolled in the class."
+        },
+        "isLive": {
+            "type": "boolean",
+            "description": "Indicates if the class is currently live."
+        },
+        "jitsiRoomName": {
+            "type": "string",
+            "description": "The unique name for the Jitsi video conference room."
+        }
+      },
+      "required": [
+        "name",
+        "teacherId",
+        "jitsiRoomName"
+      ]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "Represents a single message in a class chat.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The content of the message."
+        },
+        "senderId": {
+          "type": "string",
+          "description": "The UID of the user who sent the message."
+        },
+        "senderName": {
+          "type": "string",
+          "description": "The display name of the sender."
+        },
+        "senderRole": {
+            "type": "string",
+            "enum": ["student", "teacher"],
+            "description": "The role of the sender."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the message was sent."
+        }
+      },
+      "required": ["text", "senderId", "senderName", "senderRole", "timestamp"]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "google.com"
+    ]
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores user profile information."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+        "schema": {
+            "$ref": "#/entities/Notification"
+        },
+        "description": "Stores notifications for a specific user."
+    },
+    "/quizzes/{quizId}": {
+      "schema": {
+        "$ref": "#/entities/Quiz"
+      },
+      "description": "Stores the main information for each quiz."
+    },
+    "/quizzes/{quizId}/questions/{questionId}": {
+      "schema": {
+        "$ref": "#/entities/Question"
+      },
+      "description": "Stores the questions for a specific quiz."
+    },
+    "/quizzes/{quizId}/submissions/{submissionId}": {
+      "schema": {
+        "$ref": "#/entities/QuizSubmission"
+      },
+      "description": "Stores student submissions for a specific quiz."
+    },
+    "/classes/{classId}": {
+      "schema": {
+        "$ref": "#/entities/Class"
+      },
+      "description": "Stores information about classes."
+    },
+    "/classes/{classId}/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/ChatMessage"
+      },
+      "description": "Stores chat messages for a specific class."
+    }
+  }
+}
