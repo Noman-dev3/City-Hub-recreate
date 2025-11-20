@@ -47,7 +47,6 @@ export default function LiveClassPage() {
   const { user, loading: userLoading } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
-
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [classDetails, setClassDetails] = useState<ClassDetails | null>(null);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
@@ -55,13 +54,12 @@ export default function LiveClassPage() {
   const [showJoinDialog, setShowJoinDialog] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('video-only');
   const [isRecording, setIsRecording] = useState(false);
-  const [localRecorderReady, setLocalRecorderReady] = useState(false);
   const [error, setError] = useState('');
  
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const jitsiApiRef = useRef<any>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
-
   const isTeacher = user?.uid === classDetails?.teacherId;
   const jitsiRoom = useMemo(() => `Class_${classId}`.replace(/[^a-zA-Z0-9-_]/g, '_'), [classId]);
 
@@ -88,6 +86,7 @@ export default function LiveClassPage() {
       if (doc.exists()) {
         const data = doc.data() as SessionData;
         setSessionData(data);
+        setIsRecording(!!data.recording);
        
         // Sync whiteboard state across all users
         if (data.whiteboardActive && viewMode === 'video-only') {
@@ -98,56 +97,12 @@ export default function LiveClassPage() {
       }
     });
     return () => unsub();
-  }, [firestore, classId, viewMode]);
-
-  // Local Recorder Message Handler
-  useEffect(() => {
-    const handleRecorderMessage = (event: MessageEvent) => {
-      if (!event.data || !event.data.type) return;
-
-      switch (event.data.type) {
-        case 'recorder_ready':
-          setLocalRecorderReady(true);
-          console.log('Local recorder is ready');
-          break;
-
-        case 'recorder_start':
-          setIsRecording(true);
-          toast({ title: 'Local recording started!' });
-          break;
-
-        case 'recorder_stop':
-          setIsRecording(false);
-          recordingChunksRef.current = [];
-          toast({ title: 'Recording stopped' });
-          break;
-
-        case 'recorder_error':
-          setIsRecording(false);
-          toast({ 
-            variant: 'destructive', 
-            title: 'Recording error', 
-            description: 'Check console for details' 
-          });
-          break;
-
-        case 'recorder_data':
-          // Store chunks for external save if needed
-          if (event.data.data) {
-            recordingChunksRef.current.push(event.data.data);
-          }
-          break;
-      }
-    };
-
-    window.addEventListener('message', handleRecorderMessage);
-    return () => window.removeEventListener('message', handleRecorderMessage);
-  }, [toast]);
+  }, [firestore, classId]);
 
   // Initialize Jitsi API for better control
   useEffect(() => {
     if (!sessionData?.isActive || !iframeRef.current) return;
-    
+    // Wait for iframe to load
     const timer = setTimeout(() => {
       try {
         jitsiApiRef.current = (iframeRef.current?.contentWindow as any)?.JitsiMeetExternalAPI;
@@ -155,7 +110,6 @@ export default function LiveClassPage() {
         console.error('Jitsi API not ready:', e);
       }
     }, 3000);
-
     return () => clearTimeout(timer);
   }, [sessionData?.isActive]);
 
@@ -175,7 +129,6 @@ export default function LiveClassPage() {
     try {
       setError('');
       setShowJoinDialog(false);
-
       if (isTeacher) {
         await setDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
           jitsiRoom,
@@ -186,7 +139,6 @@ export default function LiveClassPage() {
         });
         await updateDoc(doc(firestore, 'classes', classId), { isLive: true });
       }
-
       await setDoc(doc(firestore, 'classes', classId, 'participants', user.uid), {
         userId: user.uid,
         userName: profile.fullName,
@@ -195,14 +147,12 @@ export default function LiveClassPage() {
         isObserver: asObserver,
         active: true,
       });
-
       await addDoc(collection(firestore, 'classes', classId, 'messages'), {
         text: `${profile.fullName} ${asObserver ? 'joined as observer' : 'joined the class'}`,
         senderId: 'system',
         senderName: 'System',
         timestamp: serverTimestamp(),
       });
-
       setIsInitialized(true);
       toast({ title: 'Joined successfully!' });
     } catch (err: any) {
@@ -213,22 +163,14 @@ export default function LiveClassPage() {
 
   const handleEndSession = async () => {
     if (!firestore) return;
-    
-    // Stop recording if active
-    if (isRecording) {
-      stopLocalRecording();
-    }
-
     try {
       await updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
         isActive: false,
         endedAt: serverTimestamp(),
       });
       await updateDoc(doc(firestore, 'classes', classId), { isLive: false });
-
       const parts = await getDocs(collection(firestore, 'classes', classId, 'participants'));
       parts.forEach((d) => updateDoc(d.ref, { active: false }));
-
       toast({ title: 'Session ended' });
       router.push(`/dashboard/classes/${classId}`);
     } catch (err) {
@@ -238,12 +180,6 @@ export default function LiveClassPage() {
 
   const handleLeaveSession = async () => {
     if (!user || !firestore || !profile) return;
-    
-    // Stop recording if active
-    if (isRecording) {
-      stopLocalRecording();
-    }
-
     try {
       await updateDoc(doc(firestore, 'classes', classId, 'participants', user.uid), { active: false });
       await addDoc(collection(firestore, 'classes', classId, 'messages'), {
@@ -258,66 +194,83 @@ export default function LiveClassPage() {
     router.push(`/dashboard/classes/${classId}`);
   };
 
-  const startLocalRecording = () => {
-    if (!iframeRef.current || !localRecorderReady) {
-      toast({ 
-        variant: 'destructive', 
-        title: 'Recorder not ready',
-        description: 'Please wait for the recorder to initialize'
-      });
+  const toggleRecording = async () => {
+    if (!isTeacher) {
+      toast({ variant: 'destructive', title: 'Only teachers can control recording' });
       return;
     }
 
-    try {
-      // Start recording with auto-save (external_save: false means browser will prompt to save)
-      iframeRef.current.contentWindow?.postMessage(
-        { type: 'recorder_start', data: { external_save: false } },
-        '*'
-      );
+    if (isRecording) {
+      // Stop local recording
+      if (recorderRef.current) {
+        recorderRef.current.stop();
+      }
+      // Update Firebase (optional, since this is local recording)
+      await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), {
+        recording: false,
+        recordingStoppedAt: serverTimestamp(),
+      });
+      setIsRecording(false);
+      toast({ title: 'Recording stopped' });
+    } else {
+      try {
+        // Prompt user to share screen/window/tab with audio
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true, // This enables system/tab audio capture depending on browser selection
+        });
 
-      // Update Firebase
-      if (isTeacher && firestore) {
-        updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
+        // Handle stream end (e.g., user stops sharing)
+        stream.getTracks().forEach((track) => {
+          track.onended = () => {
+            if (isRecording) {
+              toggleRecording();
+            }
+          };
+        });
+
+        // Set up MediaRecorder
+        recorderRef.current = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        recordingChunksRef.current = [];
+
+        recorderRef.current.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            recordingChunksRef.current.push(e.data);
+          }
+        };
+
+        recorderRef.current.onstop = () => {
+          const blob = new Blob(recordingChunksRef.current, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `class_${classId}_recording.webm`;
+          a.click();
+          URL.revokeObjectURL(url);
+          recordingChunksRef.current = [];
+          recorderRef.current = null;
+        };
+
+        recorderRef.current.onerror = (e) => {
+          console.error('Recording error:', e);
+          toast({ variant: 'destructive', title: 'Recording error', description: 'An error occurred during recording.' });
+        };
+
+        // Start recording with 1-second chunks to avoid memory issues
+        recorderRef.current.start(1000);
+
+        // Update Firebase (optional, to sync recording state visually)
+        await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), {
           recording: true,
           recordingStartedAt: serverTimestamp(),
         });
+
+        setIsRecording(true);
+        toast({ title: 'Recording started!', description: 'Share the browser window or tab containing the class video for best results.' });
+      } catch (err) {
+        console.error('Failed to start recording:', err);
+        toast({ variant: 'destructive', title: 'Failed to start recording', description: 'Please allow screen and audio sharing.' });
       }
-    } catch (err) {
-      console.error('Recording start error:', err);
-      toast({ 
-        variant: 'destructive', 
-        title: 'Failed to start recording',
-        description: 'Please try again'
-      });
-    }
-  };
-
-  const stopLocalRecording = () => {
-    if (!iframeRef.current) return;
-
-    try {
-      iframeRef.current.contentWindow?.postMessage(
-        { type: 'recorder_stop' },
-        '*'
-      );
-
-      // Update Firebase
-      if (isTeacher && firestore) {
-        updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
-          recording: false,
-          recordingStoppedAt: serverTimestamp(),
-        });
-      }
-    } catch (err) {
-      console.error('Recording stop error:', err);
-    }
-  };
-
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopLocalRecording();
-    } else {
-      startLocalRecording();
     }
   };
 
@@ -325,11 +278,10 @@ export default function LiveClassPage() {
     if (!isTeacher || !firestore) return;
     const newMode: ViewMode = viewMode === 'video-only' ? 'split-view' : 'video-only';
     setViewMode(newMode);
-
+    // Sync whiteboard state to all participants
     await updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
       whiteboardActive: newMode !== 'video-only',
     });
-
     toast({
       title: newMode === 'video-only' ? 'Whiteboard hidden' : 'Whiteboard shown',
       description: newMode !== 'video-only' ? 'All participants can now see the whiteboard' : undefined
@@ -382,7 +334,6 @@ export default function LiveClassPage() {
           </div>
         </div>
       )}
-
       {/* Main Layout */}
       <div className="flex flex-col h-screen bg-gray-100">
         {/* Header */}
@@ -393,16 +344,12 @@ export default function LiveClassPage() {
             {isRecording && (
               <div className="flex items-center gap-2 text-red-600 font-medium">
                 <Circle className="w-4 h-4 fill-current animate-pulse" />
-                <span>Recording Locally</span>
+                <span>Recording</span>
               </div>
             )}
-            {!localRecorderReady && (
-              <span className="text-xs text-gray-500">Initializing recorder...</span>
-            )}
           </div>
-
           <div className="flex items-center gap-2">
-            {/* View Mode Toggle */}
+            {/* View Mode Toggle (for all users) */}
             {sessionData?.whiteboardActive && (
               <Button
                 size="sm"
@@ -415,21 +362,17 @@ export default function LiveClassPage() {
                 {viewMode === 'whiteboard-only' && <><Presentation className="w-4 h-4" /> Whiteboard</>}
               </Button>
             )}
-
-            {/* Local Recording Button - Available to all users */}
-            <Button
-              size="sm"
-              variant={isRecording ? 'destructive' : 'default'}
-              onClick={toggleRecording}
-              disabled={!localRecorderReady}
-              className="gap-2"
-            >
-              {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              {isRecording ? 'Stop Recording' : 'Record Locally'}
-            </Button>
-
             {isTeacher && (
               <>
+                <Button
+                  size="sm"
+                  variant={isRecording ? 'destructive' : 'default'}
+                  onClick={toggleRecording}
+                  className="gap-2"
+                >
+                  {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {isRecording ? 'Stop Recording' : 'Record'}
+                </Button>
                 <Button
                   size="sm"
                   variant={viewMode !== 'video-only' ? 'default' : 'outline'}
@@ -452,7 +395,6 @@ export default function LiveClassPage() {
             )}
           </div>
         </header>
-
         {/* Main Content */}
         <div className="flex-1 flex relative overflow-hidden">
           {/* Jitsi Video Container */}
@@ -484,7 +426,6 @@ export default function LiveClassPage() {
               </div>
             )}
           </div>
-
           {/* Whiteboard Container */}
           <div
             className={`transition-all duration-300 bg-white ${
