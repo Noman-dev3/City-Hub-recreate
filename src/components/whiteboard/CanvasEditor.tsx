@@ -1,245 +1,475 @@
 import React, { useEffect, useRef, useState, useContext } from 'react';
-import { fabric } from 'fabric'; 
-import './FabricExtended'; 
+import { fabric } from './FabricExtended';
 import { RgbaStringColorPicker } from "react-colorful";
 import Dropdown from './Dropdown';
-
-// Icons
-import ArrowIcon from './icons/ArrowIcon'; 
-import CircleIcon from './icons/CircleIcon'; 
-import EraseIcon from './icons/EraseIcon'; 
-import ExportIcon from './icons/ExportIcon'; 
-import FlopIcon from './icons/FlopIcon'; 
-import GridIcon from './icons/GridIcon'; 
-import HandIcon from './icons/HandIcon'; 
-import ImageIcon from './icons/ImageIcon'; 
-import JsonIcon from './icons/JsonIcon'; 
-import LineIcon from './icons/LineIcon'; 
-import PenIcon from './icons/PenIcon'; 
-import RectIcon from './icons/RectIcon'; 
-import UndoIcon from './icons/UndoIcon'; 
-import StickyIcon from './icons/StickyIcon'; 
-import TextIcon from './icons/TextIcon'; 
-import TrashIcon from './icons/TrashIcon'; 
-import TriangleIcon from './icons/TriangleIcon'; 
-import RedoIcon from './icons/RedoIcon'; 
-import GeometryIcon from './icons/GeometryIcon'; 
-import CogIcon from './icons/CogIcon'; 
-
+import ArrowIcon from './icons/ArrowIcon';
+import CircleIcon from './icons/CircleIcon';
+import EraseIcon from './icons/EraseIcon';
+import ExportIcon from './icons/ExportIcon';
+import FlopIcon from './icons/FlopIcon';
+import GridIcon from './icons/GridIcon';
+import HandIcon from './icons/HandIcon';
+import ImageIcon from './icons/ImageIcon';
+import JsonIcon from './icons/JsonIcon';
+import LineIcon from './icons/LineIcon';
+import PenIcon from './icons/PenIcon';
+import RectIcon from './icons/RectIcon';
+import UndoIcon from './icons/UndoIcon';
+import StickyIcon from './icons/StickyIcon';
+import TextIcon from './icons/TextIcon';
+import TrashIcon from './icons/TrashIcon';
+import TriangleIcon from './icons/TriangleIcon';
+import RedoIcon from './icons/RedoIcon';
+import GeometryIcon from './icons/GeometryIcon';
 import './Whiteboard.css';
+import CogIcon from './icons/CogIcon';
 import { WhiteboardContext } from './WhiteboardStore';
 
 interface IProps {
-  className?: string;
-  options?: object;
-  onSync?: (json: any) => void; 
-  syncData?: any; 
-  readOnly?: boolean;
+  className?: string,
+  options?: object,
+  onChange?: any
 }
 
 const bottomMenu = [
+  { title: 'Show Object Options', icon: <CogIcon /> },
   { title: 'Grid', icon: <GridIcon /> },
+  { title: 'Erase', icon: <EraseIcon /> },
   { title: 'Undo', icon: <UndoIcon /> },
   { title: 'Redo', icon: <RedoIcon /> },
-  { title: 'Clear', icon: <TrashIcon /> },
+  { title: 'Save', icon: <FlopIcon /> },
   { title: 'Export', icon: <ExportIcon /> },
+  { title: 'ToJson', icon: <JsonIcon /> },
+  { title: 'Clear', icon: <TrashIcon /> }
 ];
 
 const toolbar = [
   { title: 'Select', icon: <HandIcon /> },
   { title: 'Draw', icon: <PenIcon /> },
   { title: 'Text', icon: <TextIcon /> },
-  { title: 'Rect', icon: <RectIcon /> },
-  { title: 'Circle', icon: <CircleIcon /> },
+  { title: 'Sticky', icon: <StickyIcon /> },
   { title: 'Arrow', icon: <ArrowIcon /> },
+  { title: 'Line', icon: <LineIcon /> }
 ];
 
-export function CanvasEditor({ className, options, onSync, syncData, readOnly }: IProps) {
-  const parentRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { gstate } = useContext(WhiteboardContext);
+let currentCanvas: any = null;
+
+export function CanvasEditor({ onChange, className, options }: IProps) {
+  const parentRef = useRef<any>();
+  const canvasRef = useRef<any>();
+  const inputImageFileRef = useRef<any>();
+  const inputJsonFileRef = useRef<any>();
+
+  const { gstate, setGState } = useContext(WhiteboardContext);
   const { canvasOptions, backgroundImage } = gstate;
-  const [editor, setEditor] = useState<fabric.Canvas | null>(null);
+
+  const [editor, setEditor] = useState<any>();
+
+
+  const [objOptions, setObjOptions] = useState({
+    stroke: '#000000', fontSize: 22, fill: 'rgba(255, 255, 255, 0.0)', strokeWidth: 3, ...options
+  });
+
+  const [colorProp, setColorProp] = useState<string>('background')
+
+  const [showObjOptions, setShowObjOptions] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
-  const isInternalUpdate = useRef(false);
 
-  // Initialize Canvas
+  const canvasModifiedCallback = () => {
+    if (currentCanvas) {
+      onChange(currentCanvas.toDatalessJSON())
+    }
+  };
+
   useEffect(() => {
-    if (!canvasRef.current || !parentRef.current) return;
-
-    const canvas = new fabric.Canvas(canvasRef.current, {
-      ...canvasOptions,
-      isDrawingMode: !readOnly,
-      width: parentRef.current.clientWidth,
-      height: parentRef.current.clientHeight,
-    });
-
+    const canvas = new fabric.Canvas(canvasRef?.current, canvasOptions);
+    currentCanvas = canvas;
     setEditor(canvas);
 
-    const handleResize = () => {
-      canvas.setWidth(parentRef.current?.clientWidth || 0);
-      canvas.setHeight(parentRef.current?.clientHeight || 0);
-      canvas.renderAll();
-    };
+    const onKeydown = (e: KeyboardEvent) => {
+      if (!canvas) return;
 
-    window.addEventListener('resize', handleResize);
+      if (e.code === 'Delete' || e.keyCode === 46 || e.which === 46) {
+        const activeObject = canvas.getActiveObject();
+        if (activeObject) {
+          canvas.remove(activeObject);
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.keyCode === 67 || e.which === 67)) {
+        const object = fabric.util.object.clone(canvas.getActiveObject());
+        object.set("top", object.top + 5);
+        object.set("left", object.left + 5);
+        canvas.add(object);
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.keyCode === 83 || e.which === 83)) {
+        e.preventDefault();
+        localStorage.setItem('whiteboard-cache', JSON.stringify(canvas.toDatalessJSON()))
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.keyCode === 79 || e.which === 79)) {
+        e.preventDefault();
+        inputImageFileRef.current.click()
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.keyCode === 90 || e.which === 90)) {
+        e.preventDefault();
+        // @ts-ignore: Unreachable code error
+        canvas.undo()
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.keyCode === 89 || e.which === 89)) {
+        e.preventDefault();
+        // @ts-ignore: Unreachable code error
+        canvas.redo()
+      }
+    }
+
+    if (parentRef && parentRef.current && canvas) {
+      const data = localStorage.getItem('whiteboard-cache');
+
+      if (data) canvas.loadFromJSON(JSON.parse(data), canvas.renderAll.bind(canvas));
+
+      // canvas.on('mouse:down', function (event) {
+      //   setShowObjOptions(canvas.getActiveObject() ? true : false)
+      // });      
+
+      if (onChange) {
+        canvas.on('object:added', canvasModifiedCallback);
+        canvas.on('object:removed', canvasModifiedCallback);
+        canvas.on('object:modified', canvasModifiedCallback);
+      }
+
+      canvas.setHeight(parentRef.current?.clientHeight || 0);
+      canvas.setWidth(parentRef.current?.clientWidth || 0);
+      canvas.renderAll();
+
+      document.addEventListener('keydown', onKeydown, false);
+    }
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      canvas.off('object:added', canvasModifiedCallback);
+      canvas.off('object:removed', canvasModifiedCallback);
+      canvas.off('object:modified', canvasModifiedCallback);
+
+      //canvas.off('mouse:down');
+      document.removeEventListener('keydown', onKeydown, false);
       canvas.dispose();
-    };
+    }
   }, []);
 
-  // Handle Sync Data (Incoming from Jitsi/Socket)
-  useEffect(() => {
-    if (editor && syncData) {
-      isInternalUpdate.current = true;
-      editor.loadFromJSON(syncData, () => {
-        editor.renderAll();
-        isInternalUpdate.current = false;
-      });
-    }
-  }, [syncData, editor]);
-
-  // Handle Outgoing Sync (User draws something)
-  useEffect(() => {
-    if (!editor || !onSync) return;
-
-    const pushChange = () => {
-      if (isInternalUpdate.current) return;
-      const json = editor.toDatalessJSON();
-      onSync(json);
-    };
-
-    editor.on('object:added', pushChange);
-    editor.on('object:modified', pushChange);
-    editor.on('object:removed', pushChange);
-    editor.on('path:created', pushChange);
-
-    return () => {
-      editor.off('object:added', pushChange);
-      editor.off('object:modified', pushChange);
-      editor.off('object:removed', pushChange);
-      editor.off('path:created', pushChange);
-    };
-  }, [editor, onSync]);
-
-  // Handle Tool Selection
   const onToolbar = (objName: string) => {
-    if (!editor || readOnly) return;
-
-    editor.isDrawingMode = false;
-
-    if (objName === 'Select') {
-      editor.discardActiveObject();
-      editor.requestRenderAll();
-      return;
-    }
-
-    if (objName === 'Draw') {
-      editor.isDrawingMode = true;
-      editor.freeDrawingBrush.width = 5;
-      editor.freeDrawingBrush.color = 'black';
-      return;
-    }
-
-    let obj: any;
-    const center = editor.getCenter();
+    let objType;
 
     switch (objName) {
-      case 'Text':
-        obj = new fabric.Textbox('Text', { left: center.left, top: center.top, fontSize: 20 });
+      case 'Select':
+        editor.isDrawingMode = false;
+        editor.discardActiveObject().renderAll();
         break;
-      case 'Rect':
-        obj = new fabric.Rect({ 
-            left: center.left, 
-            top: center.top, 
-            width: 100, 
-            height: 100, 
-            fill: 'transparent', 
-            stroke: 'black', 
-            strokeWidth: 2 
-        });
-        break;
-      case 'Circle':
-        obj = new fabric.Circle({ 
-            left: center.left, 
-            top: center.top, 
-            radius: 50, 
-            fill: 'transparent', 
-            stroke: 'black', 
-            strokeWidth: 2 
-        });
-        break;
-      case 'Arrow':
-        // Fixed: Added robust Arrow implementation using Path
-        obj = new fabric.Path('M 0 0 L 100 0 M 90 -10 L 100 0 L 90 10', {
-            left: center.left,
-            top: center.top,
-            stroke: 'black',
-            strokeWidth: 2,
-            fill: 'transparent'
-        });
-        break;
-    }
 
-    if (obj) {
-      editor.add(obj);
-      editor.setActiveObject(obj);
-    }
-  };
-
-  const onBottomMenu = (action: string) => {
-    if (!editor) return;
-    switch (action) {
-      case 'Clear':
-        if(confirm("Clear board?")) {
-            editor.clear();
-            editor.fire('object:modified'); // Trigger sync
+      case 'Draw':
+        if (editor) {
+          editor.isDrawingMode = true;
+          editor.freeDrawingBrush.width = localStorage.getItem('freeDrawingBrush.width') || 5;
+          editor.freeDrawingBrush.color = localStorage.getItem('freeDrawingBrush.color') || '#000000';
         }
         break;
-      case 'Undo':
-        // @ts-ignore
-        if (editor.undo) editor.undo();
+
+      case 'Text':
+        editor.isDrawingMode = false;
+        objType = new fabric.Textbox('Your text here', { fontSize: objOptions.fontSize });
         break;
-      case 'Redo':
-        // @ts-ignore
-        if (editor.redo) editor.redo();
+
+      case 'Circle':
+        editor.isDrawingMode = false;
+        objType = new fabric.Circle({ ...objOptions, radius: 70 });
         break;
-      case 'Grid':
-        setShowGrid(!showGrid);
+
+      case 'Rect':
+        editor.isDrawingMode = false;
+        objType = new fabric.Rect({ ...objOptions, width: 100, height: 100 });
+        break;
+
+      case 'Triangle':
+        editor.isDrawingMode = false;
+        objType = new fabric.Triangle({ ...objOptions, width: 100, height: 100 });
+        break;
+
+      case 'Arrow':
+        editor.isDrawingMode = false;
+        const triangle = new fabric.Triangle({
+          ...objOptions,
+          width: 10,
+          height: 15,
+          left: 235,
+          top: 65,
+          angle: 90
+        });
+
+        const line = new fabric.Line([50, 100, 200, 100], { ...objOptions, left: 75, top: 70 });
+
+        objType = new fabric.Group([line, triangle]);
+        break;
+
+      case 'Line':
+        editor.isDrawingMode = false;
+        objType = new fabric.Line([50, 10, 200, 150], { ...objOptions, angle: 47 });
+        break;
+
+      case 'Sticky':
+        objType = new fabric.Textbox('Your text here', {
+          ...objOptions,
+          backgroundColor: '#8bc34a',
+          fill: '#fff',
+          width: 150,
+          textAlign: 'left',
+          splitByGrapheme: true,
+          height: 150,
+          padding: 20
+        });
+        break;
+
+      default:
         break;
     }
-  };
 
-  return (
-    <div 
-      className={`w-100 h-100 whiteboard ${className}`} 
-      style={{ backgroundImage: showGrid ? backgroundImage : '', position: 'relative' }} 
-      ref={parentRef}
-    >
-      
-      {/* Top Toolbar */}
-      {!readOnly && (
-        <div className='d-flex justify-center align-center' style={{ position: 'absolute', top: '10px', left: 0, right: 0, zIndex: 100 }}>
-          <div className='bg-white d-flex shadow br-7'>
-            {toolbar.map(item => (
-              <button key={item.title} onClick={() => onToolbar(item.title)} title={item.title}>{item.icon}</button>
-            ))}
-          </div>
+    if (objName !== 'Draw' && objName !== 'Select') {
+      editor.add(objType);
+      editor.centerObject(objType);
+    }
+
+    editor.renderAll();
+  }
+
+  const onBottomMenu = (actionName: string) => {
+    switch (actionName) {
+      case 'Show Object Options':
+        setShowObjOptions(!showObjOptions);
+        break;
+
+      case 'Export':
+        const image = editor.toDataURL("image/png").replace("image/png", "image/octet-stream");
+        window.open(image);
+        break;
+
+      case 'Save':
+        localStorage.setItem('whiteboard-cache', JSON.stringify(editor.toDatalessJSON()))
+        break;
+
+      case 'Erase':
+        const activeObject = editor.getActiveObject();
+        if (activeObject) {
+          editor.remove(activeObject);
+        }
+        break;
+
+      case 'ToJson':
+        const content = JSON.stringify(editor.toDatalessJSON());
+        const link = document.createElement("a");
+        const file = new Blob([content], { type: 'application/json' });
+        link.setAttribute('download', 'whiteboard.json');
+        link.href = URL.createObjectURL(file);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        break;
+
+      case 'Undo':
+        editor.undo()
+        break;
+
+      case 'Redo':
+        editor.redo()
+        break;
+
+      case 'Grid':
+        setShowGrid(!showGrid)
+        break;
+
+      case 'Clear':
+        if (confirm('Are you sure to reset the whiteboard?')) {
+          localStorage.removeItem('whiteboard-cache')
+          editor.clearHistory();
+          editor.clear();
+        }
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  const onFileChange = (e: any) => {
+    console.log(e.target.files.length);
+
+    if (e.target.files.length < 1) return;
+
+    const inputFileName = e.target.name;
+    const file = e.target.files[0];
+    const fileType = file.type;
+    const url = URL.createObjectURL(file);
+
+    if (inputFileName === 'json') {
+      fetch(url).then(r => r.json())
+        .then(json => {
+          editor.loadFromJSON(json, (v: any) => {
+            console.log(v);
+          });
+        });
+    }
+    else {
+
+      if (fileType === 'image/png' || fileType === 'image/jpeg') {
+        fabric.Image.fromURL(url, function (img) {
+          img.set({ width: 180, height: 180 });
+          editor.centerObject(img);
+          editor.add(img);
+        });
+      }
+
+      if (fileType === 'image/svg+xml') {
+        fabric.loadSVGFromURL(url, function (objects, options) {
+          var svg = fabric.util.groupSVGElements(objects, options);
+          svg.scaleToWidth(180);
+          svg.scaleToHeight(180);
+          editor.centerObject(svg);
+          editor.add(svg);
+        });
+      }
+    }
+  }
+
+  const onRadioColor = (e: any) => {
+    setColorProp(e.target.value);
+  }
+
+  const onColorChange = (value: any) => {
+    const activeObj = editor.getActiveObject();
+
+    if (editor.isDrawingMode) {
+      editor.freeDrawingBrush.color = value;
+      localStorage.setItem('freeDrawingBrush.color', value);
+    }
+    if (activeObj) {
+      activeObj.set(colorProp, value);
+      const ops = { ...objOptions, [colorProp]: value };
+      setObjOptions(ops);
+      editor.renderAll()
+    }
+    else {
+      if (colorProp === 'backgroundColor') {
+        editor.backgroundColor = value;
+        editor.renderAll()
+      }
+    }
+  }
+
+  const onOptionsChange = (e: any) => {
+    let val = e.target.value;
+    const name = e.target.name;
+    const activeObj = editor.getActiveObject();
+
+    if (editor.isDrawingMode && name === 'strokeWidth') {
+      editor.freeDrawingBrush.width = val;
+      localStorage.setItem('freeDrawingBrush.width', val)
+    }
+
+    if (activeObj) {
+      val = isNaN(val) ? val : +val;
+      activeObj.set(name, val);
+
+      const ops = { ...objOptions, [name]: val };
+      setObjOptions(ops);
+      editor.renderAll()
+    }
+  }
+
+  const onZoom = (e: any) => {
+    editor.zoomToPoint(new fabric.Point(editor.width / 2, editor.height / 2), +e.target.value);
+    const units = 10;
+    const delta = new fabric.Point(units, 0);
+    editor.relativePan(delta);
+
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const onLoadImage = () => {
+    inputImageFileRef.current.click();
+  }
+
+  const onLoadFromJson = () => {
+    inputJsonFileRef.current.click();
+  }
+
+  return (<div className={'w-100 h-100 whiteboard ' + className}
+    style={{ backgroundImage: showGrid ? backgroundImage : '' }}
+    ref={parentRef}>
+
+    {showObjOptions && <div className='left-menu'>
+      <div className='bg-white d-flex align-center justify-between shadow br-7'>
+        <label>Font size</label>
+        <input type="number" min="1" name='fontSize' onChange={onOptionsChange} defaultValue="22" />
+      </div>
+
+      <div className='bg-white d-flex align-center justify-between shadow br-7'>
+        <label>Stroke</label>
+        <input type="number" min="1" name='strokeWidth' onChange={onOptionsChange} defaultValue="3" />
+      </div>
+
+      <div className='bg-white d-flex flex-column shadow br-7'>
+        <div className='d-flex align-end mb-10'>
+          <input className='mr-10' type="radio" onChange={onRadioColor} name="color" defaultValue="backgroundColor" />
+          <label htmlFor='backgroundColor'>background</label>
         </div>
-      )}
-
-      <canvas ref={canvasRef} />
-
-      {/* Bottom Toolbar */}
-      <div className='bottom-menu' style={{ position: 'absolute', bottom: '10px', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 100 }}>
-        <div className='d-flex bg-white br-7 shadow'>
-          {bottomMenu.map(item => (
-            <button key={item.title} onClick={() => onBottomMenu(item.title)} title={item.title}>{item.icon}</button>
-          ))}
+        <div className='d-flex align-end mb-10'>
+          <input className='mr-10' type="radio" onChange={onRadioColor} id="stroke" name="color" defaultValue="stroke" />
+          <label htmlFor='stroke'>stroke</label>
         </div>
+
+        <div className='d-flex align-end mb-10'>
+          <input className='mr-10' type="radio" onChange={onRadioColor} id="fill" name="color" defaultValue="fill" />
+          <label htmlFor='fill'>fill</label>
+        </div>
+
+        <RgbaStringColorPicker onChange={onColorChange} />
+      </div>
+    </div>}
+
+    <div className='w-100 d-flex justify-center align-center' style={{ position: 'fixed', top: '10px', left: 0, zIndex: 9999 }}>
+      <div className='bg-white d-flex justify-center align-center shadow br-7'>
+        {toolbar.map(item => <button key={item.title} onClick={() => { onToolbar(item.title) }} title={item.title}>{item.icon}</button>)}
+        <Dropdown title={<GeometryIcon />}>
+          <button onClick={() => { onToolbar('Circle') }} title="Add Circle"><CircleIcon /></button>
+          <button onClick={() => { onToolbar('Rect') }} title="Add Rectangle"><RectIcon /></button>
+          <button onClick={() => { onToolbar('Triangle') }} title="Add Triangle"><TriangleIcon /></button>
+        </Dropdown>
+        <button onClick={() => { onLoadImage() }} title="Load Image"><ImageIcon /></button>
+        <button onClick={() => { onLoadFromJson() }} title="Load From Json"><JsonIcon /></button>
       </div>
     </div>
-  );
+
+    <canvas ref={canvasRef} className='canvas' />
+
+    <div className='w-100 bottom-menu'>
+      <div className='d-flex align-center bg-white br-7 shadow pr-1 pl-1'>feedback</div>
+
+      <div className='d-flex align-center bg-white br-7 shadow'>
+        {bottomMenu.map(item => <button key={item.title} onClick={() => { onBottomMenu(item.title) }} title={item.title}>{item.icon}</button>)}
+      </div>
+
+      <select className='d-flex align-center bg-white br-7 shadow border-0 pr-1 pl-1' onChange={onZoom} defaultValue="1">
+        <option value="2">200%</option>
+        <option value="1.5">150%</option>
+        <option value="1">100%</option>
+        <option value="0.75">75%</option>
+        <option value="0.50">50%</option>
+        <option value="0.25">25%</option>
+      </select>
+
+      <input ref={inputImageFileRef} type="file" name='image' onChange={onFileChange} accept="image/svg+xml, image/gif, image/jpeg, image/png" hidden />
+      <input ref={inputJsonFileRef} type="file" name='json' onChange={onFileChange} accept="application/json" hidden />
+    </div>
+  </div>)
 }
