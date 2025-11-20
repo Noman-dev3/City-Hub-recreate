@@ -93,6 +93,10 @@ export default function LiveClassPage() {
 
   const isTeacher = user?.uid === classDetails?.teacherId;
   const jitsiRoom = `Class_${classId}`.replace(/[^a-zA-Z0-9-_]/g, '_');
+  
+  // Jitsi 8x8 Configuration
+  const VPAAS_APP_ID = 'vpaas-magic-cookie-7bb0b1ee8df54facb392382c0007102d';
+  const JWT_TOKEN = 'eyJraWQiOiJ2cGFhcy1tYWdpYy1jb29raWUtN2JiMGIxZWU4ZGY1NGZhY2IzOTIzODJjMDAwNzEwMmQvNTgxNzZiLVNBTVBMRV9BUFAiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJqaXRzaSIsImlzcyI6ImNoYXQiLCJpYXQiOjE3NjM2MDY3NDksImV4cCI6MTc2MzYxMzk0OSwibmJmIjoxNzYzNjA2NzQ0LCJzdWIiOiJ2cGFhcy1tYWdpYy1jb29raWUtN2JiMGIxZWU4ZGY1NGZhY2IzOTIzODJjMDAwNzEwMmQiLCJjb250ZXh0Ijp7ImZlYXR1cmVzIjp7ImxpdmVzdHJlYW1pbmciOnRydWUsImZpbGUtdXBsb2FkIjp0cnVlLCJvdXRib3VuZC1jYWxsIjp0cnVlLCJzaXAtb3V0Ym91bmQtY2FsbCI6ZmFsc2UsInRyYW5zY3JpcHRpb24iOnRydWUsImxpc3QtdmlzaXRvcnMiOmZhbHNlLCJyZWNvcmRpbmciOnRydWUsImZsaXAiOmZhbHNlfSwidXNlciI6eyJoaWRkZW4tZnJvbS1yZWNvcmRlciI6ZmFsc2UsIm1vZGVyYXRvciI6dHJ1ZSwibmFtZSI6Im5vbWFuLmRldjMiLCJpZCI6Imdvb2dsZS1vYXV0aDJ8MTA3ODE4MTg3NDI2MjYxNTM0OTU2IiwiYXZhdGFyIjoiIiwiZW1haWwiOiJub21hbi5kZXYzQGdtYWlsLmNvbSJ9fSwicm9vbSI6IioifQ.Vxpvi67HYphK7Mx89pyzvgOIhI5nRaI8hZJ0N1XyZL6QiHbvUME0PwfCinNLcwWzrdxBhKBJpd-GYnK2w13ByXTBAUP6XlNwn2JQM-yYtFimEojqYDXzCkktg85oCA6Izl2Zt2I3itf0BoyHBjvRqnfUMro0nei45ejWR9Me78A0MheBhu3VxUGiglHhxtr1kk_ft9WY89ZvhB1Mz7mLPnZzhQbiySftBYZAmxVgzRe8q1gULl-zaZbhD9MpzzbgqwbiuOugIfI7bcIqu4ZqKziIVqPLeZ-XrHtJrtZd9fQJNt1MfV8UUDa78rtWtstEu5025PiwaCjvnWyTepUnQg';
 
   // ==================== FIREBASE LISTENERS ====================
   useEffect(() => {
@@ -663,4 +667,4 @@ export default function LiveClassPage() {
       </div>
     </>
   );
-                }
+}
