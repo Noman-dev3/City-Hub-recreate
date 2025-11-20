@@ -101,7 +101,6 @@ export default function LiveClassPage() {
   useEffect(() => {
     if (typeof window !== 'undefined' && !window.JitsiMeetExternalAPI) {
       const script = document.createElement('script');
-      // Using the generic external_api.js from your app's domain on 8x8
       script.src = `https://8x8.vc/${JAAS_APP_ID}/external_api.js`;
       script.async = true;
       document.body.appendChild(script);
@@ -109,15 +108,14 @@ export default function LiveClassPage() {
     }
   }, []);
 
-  // --- INITIALIZE JITSI ---
+  // --- INITIALIZE JITSI (FIXED) ---
   useEffect(() => {
-    if (!sessionData?.isActive || !jitsiContainerRef.current || !window.JitsiMeetExternalAPI || !profile) return;
-    if (jitsiApiRef.current) return; // Prevent double init
+    // FIX: Added !user check here to prevent "N is null" error
+    if (!sessionData?.isActive || !jitsiContainerRef.current || !window.JitsiMeetExternalAPI || !profile || !user) return;
+    if (jitsiApiRef.current) return; 
 
     const initJitsi = async () => {
       try {
-        // Logic: Only the teacher gets the JWT (which grants Moderator power). 
-        // Students join as guests (JWT = null).
         const token = isTeacher ? TEACHER_JWT : null;
 
         const options = {
@@ -125,7 +123,7 @@ export default function LiveClassPage() {
           width: '100%',
           height: '100%',
           parentNode: jitsiContainerRef.current,
-          jwt: token, // Passing the Real JWT here
+          jwt: token, 
           configOverwrite: {
             startWithAudioMuted: false,
             startWithVideoMuted: true,
@@ -134,7 +132,6 @@ export default function LiveClassPage() {
             enableWelcomePage: false,
           },
           interfaceConfigOverwrite: {
-            // Clean, minimal toolbar
             TOOLBAR_BUTTONS: [
               'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen',
               'fodeviceselection', 'hangup', 'profile', 'chat', 
@@ -146,9 +143,8 @@ export default function LiveClassPage() {
             DEFAULT_REMOTE_DISPLAY_NAME: 'Student',
           },
           userInfo: {
-            // Note: For the Teacher, the JWT payload ('noman.dev3') might override this display name
             displayName: profile.fullName, 
-            email: user.email
+            email: user?.email || 'user@example.com' // FIX: Optional chaining + fallback
           }
         };
 
@@ -166,7 +162,6 @@ export default function LiveClassPage() {
       }
     };
 
-    // Small delay to ensure container is rendered
     setTimeout(initJitsi, 200);
 
     return () => {
@@ -175,31 +170,26 @@ export default function LiveClassPage() {
         jitsiApiRef.current = null;
       }
     };
-  }, [sessionData?.isActive, profile, jitsiRoom, isTeacher, user.email]);
+  }, [sessionData?.isActive, profile, jitsiRoom, isTeacher, user]); // Added user to deps
 
   // --- AUTO DIALOG LOGIC ---
   useEffect(() => {
     if (profile && classDetails && !isInitialized) {
       if (!sessionData?.isActive) {
-        // Class not active: Only teacher sees dialog to START it
         setShowJoinDialog(isTeacher);
       } else if (!isTeacher) {
-        // Class is active: Student sees dialog to JOIN it
         setShowJoinDialog(true);
       }
     }
   }, [profile, classDetails, sessionData, isInitialized, isTeacher]);
 
-
   // --- HANDLERS ---
-
   const handleJoin = async (asObserver = false) => {
     if (!firestore || !user || !profile) return;
     try {
       setShowJoinDialog(false);
       
       if (isTeacher) {
-        // Start Session in Firebase
         await setDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
           jitsiRoom,
           isActive: true,
@@ -209,7 +199,6 @@ export default function LiveClassPage() {
         await updateDoc(doc(firestore, 'classes', classId), { isLive: true });
       }
       
-      // Register Participant
       await setDoc(doc(firestore, 'classes', classId, 'participants', user.uid), {
         userId: user.uid,
         userName: profile.fullName,
@@ -219,7 +208,6 @@ export default function LiveClassPage() {
         active: true,
       });
 
-      // Log System Message
       await addDoc(collection(firestore, 'classes', classId, 'messages'), {
         text: `${profile.fullName} joined the class`,
         senderId: 'system',
@@ -237,43 +225,34 @@ export default function LiveClassPage() {
 
   const toggleRecording = async () => {
     if (!isTeacher) return;
-    
     if (isRecording) {
-      // STOP
       recorderRef.current?.stop();
       await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), { recording: false });
       setIsRecording(false);
     } else {
-      // START
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        
-        // Codec selection: MP4 preferred
         const mime = MediaRecorder.isTypeSupported("video/mp4") ? "video/mp4" : "video/webm";
-        
         recorderRef.current = new MediaRecorder(stream, { mimeType: mime });
         recordingChunksRef.current = [];
-        
         recorderRef.current.ondataavailable = (e) => {
           if (e.data.size > 0) recordingChunksRef.current.push(e.data);
         };
-        
         recorderRef.current.onstop = () => {
           const blob = new Blob(recordingChunksRef.current, { type: mime });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `Recording_${classDetails?.name}_${new Date().toISOString().slice(0,10)}.${mime === "video/mp4" ? "mp4" : "webm"}`;
+          a.download = `Recording_${classDetails?.name}.${mime === "video/mp4" ? "mp4" : "webm"}`;
           a.click();
           URL.revokeObjectURL(url);
         };
-        
-        recorderRef.current.start(1000); // 1s chunks
+        recorderRef.current.start(1000);
         await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), { recording: true });
         setIsRecording(true);
-        toast({ title: 'Recording Started', description: 'Sharing screen & audio.' });
+        toast({ title: 'Recording Started' });
       } catch (e) {
-        toast({ variant: 'destructive', title: 'Permission Denied', description: 'Could not access screen.' });
+        toast({ variant: 'destructive', title: 'Permission Denied' });
       }
     }
   };
@@ -281,17 +260,17 @@ export default function LiveClassPage() {
   const handleEndSession = async () => {
     if (isRecording) await toggleRecording();
     if (jitsiApiRef.current) jitsiApiRef.current.dispose();
-    
     await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), { isActive: false });
     await updateDoc(doc(firestore!, 'classes', classId), { isLive: false });
     router.push(`/dashboard/classes/${classId}`);
   };
 
   const handleLeaveSession = async () => {
-    await updateDoc(doc(firestore!, 'classes', classId, 'participants', user!.uid), { active: false });
+    if (user) {
+      await updateDoc(doc(firestore!, 'classes', classId, 'participants', user.uid), { active: false });
+    }
     router.push(`/dashboard/classes/${classId}`);
   };
-
 
   // --- LOADING VIEW ---
   const isLoading = userLoading || !profile || !classDetails || (!isInitialized && !showJoinDialog && sessionData?.isActive);
@@ -299,15 +278,11 @@ export default function LiveClassPage() {
   if (isLoading) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden">
-        {/* Animated Background */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-black" />
-        
         <div className="z-10 flex flex-col items-center animate-in zoom-in duration-700 fade-in">
-          <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4 drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]" />
-          <h2 className="text-xl font-bold tracking-wide bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
-            Establishing Secure Connection
-          </h2>
-          <p className="text-slate-500 text-sm mt-2 font-medium">Verifying JaaS Credentials...</p>
+          <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
+          <h2 className="text-xl font-bold tracking-wide">Establishing Connection</h2>
+          <p className="text-slate-500 text-sm mt-2">Please wait...</p>
         </div>
       </div>
     );
@@ -315,17 +290,12 @@ export default function LiveClassPage() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-50 font-sans selection:bg-indigo-500/30 overflow-hidden">
-      
-      {/* --- TOP BAR (Glassmorphism) --- */}
       <header className="h-16 px-6 flex items-center justify-between z-30 bg-slate-900/60 backdrop-blur-xl border-b border-white/5 shadow-2xl">
-        
-        {/* Class Info */}
         <div className="flex items-center gap-4">
           <div className={`relative flex h-3 w-3`}>
             {isRecording && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>}
-            <span className={`relative inline-flex rounded-full h-3 w-3 ${isRecording ? 'bg-red-500' : 'bg-emerald-500 shadow-[0_0_10px_#10b981]'}`}></span>
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${isRecording ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
           </div>
-          
           <div>
             <h1 className="font-bold text-base tracking-tight text-slate-100">{classDetails.name}</h1>
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-slate-500">
@@ -334,54 +304,31 @@ export default function LiveClassPage() {
             </div>
           </div>
         </div>
-
-        {/* Controls */}
         <div className="flex items-center gap-3">
           {isTeacher ? (
             <>
               <Button 
                 size="sm" 
                 onClick={toggleRecording}
-                className={`
-                  transition-all duration-300 border backdrop-blur-md font-medium
-                  ${isRecording 
-                    ? 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20' 
-                    : 'bg-slate-800/50 text-slate-300 border-slate-700 hover:bg-slate-700'}
-                `}
+                className={`transition-all duration-300 border backdrop-blur-md font-medium ${isRecording ? 'bg-red-500/10 text-red-400 border-red-500/30' : 'bg-slate-800/50 text-slate-300 border-slate-700'}`}
               >
                 {isRecording ? <MicOff className="w-4 h-4 mr-2 animate-pulse" /> : <Mic className="w-4 h-4 mr-2" />}
                 {isRecording ? 'Stop Rec' : 'Record'}
               </Button>
-              
-              <Button 
-                size="sm" 
-                variant="destructive" 
-                onClick={handleEndSession}
-                className="bg-red-600 hover:bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.3)] transition-transform hover:scale-105"
-              >
+              <Button size="sm" variant="destructive" onClick={handleEndSession}>
                 <Power className="w-4 h-4 mr-2" /> End Class
               </Button>
             </>
           ) : (
-            <Button 
-              size="sm" 
-              variant="outline" 
-              className="border-red-900/30 text-red-400 bg-red-950/10 hover:bg-red-950/30 hover:border-red-900/50"
-              onClick={handleLeaveSession}
-            >
+            <Button size="sm" variant="outline" onClick={handleLeaveSession} className="border-red-900/30 text-red-400 bg-red-950/10">
               <PhoneOff className="w-4 h-4 mr-2" /> Leave
             </Button>
           )}
         </div>
       </header>
 
-      {/* --- VIDEO STAGE --- */}
       <main className="flex-1 relative bg-black group overflow-hidden">
-        
-        {/* Ambient Background Glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-indigo-900/10 rounded-full blur-[100px] pointer-events-none" />
-
-        {/* Error Message */}
         {error && (
           <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-md animate-in slide-in-from-top-4 fade-in duration-500">
             <Alert variant="destructive" className="bg-red-950/80 border-red-900 text-red-200 backdrop-blur-md">
@@ -391,74 +338,38 @@ export default function LiveClassPage() {
             </Alert>
           </div>
         )}
-
-        {/* Jitsi Container */}
         <div className="relative z-10 w-full h-full flex items-center justify-center">
           {sessionData?.isActive ? (
-            <div 
-              ref={jitsiContainerRef} 
-              className="w-full h-full animate-in fade-in zoom-in-95 duration-700 ease-out"
-            />
+            <div ref={jitsiContainerRef} className="w-full h-full animate-in fade-in zoom-in-95 duration-700 ease-out" />
           ) : (
             <div className="flex flex-col items-center animate-in zoom-in duration-500">
-              <div className="w-24 h-24 bg-slate-900/50 backdrop-blur-sm rounded-full flex items-center justify-center mb-6 border border-slate-800 shadow-[0_0_30px_rgba(79,70,229,0.15)]">
+              <div className="w-24 h-24 bg-slate-900/50 backdrop-blur-sm rounded-full flex items-center justify-center mb-6 border border-slate-800">
                 <LayoutTemplate className="w-10 h-10 text-slate-600" />
               </div>
               <h3 className="text-2xl font-bold text-slate-200">Classroom Offline</h3>
-              <p className="text-slate-500 mt-2 font-medium">Waiting for the teacher to start the session.</p>
+              <p className="text-slate-500 mt-2 font-medium">Waiting for teacher...</p>
             </div>
           )}
         </div>
       </main>
 
-      {/* --- JOIN DIALOG (Modern Card) --- */}
       {showJoinDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 zoom-in-95 duration-500 ring-1 ring-white/5">
-            
-            {/* Card Header */}
+          <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 zoom-in-95 duration-500">
             <div className="h-36 bg-gradient-to-br from-indigo-600 to-purple-700 flex flex-col items-center justify-center relative">
-               {/* Noise Texture Overlay */}
-               <div className="absolute inset-0 opacity-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIi8+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiLz4KPC9zdmc+')]"></div>
                <Users className="w-10 h-10 text-white mb-2 drop-shadow-lg" />
                <div className="text-white font-bold text-lg tracking-wide">{isTeacher ? 'Teacher Console' : 'Student Entry'}</div>
             </div>
-            
-            {/* Card Body */}
-            <div className="p-6 space-y-6">
-              <div className="text-center">
-                <h2 className="text-xl font-bold text-white">
-                  {isTeacher ? 'Start Live Session' : 'Join Class'}
-                </h2>
-                <p className="text-slate-400 text-sm mt-2 leading-relaxed">
-                  {isTeacher 
-                    ? 'You are entering as the Host. Your audio/video will be muted initially.'
-                    : 'Connect to the secure live stream.'}
-                </p>
-              </div>
-              
-              <div className="space-y-3 pt-2">
-                <Button 
-                  size="lg" 
-                  onClick={() => handleJoin(false)} 
-                  className="w-full bg-indigo-500 hover:bg-indigo-400 text-white font-bold h-12 rounded-xl shadow-lg shadow-indigo-900/40 transition-all hover:scale-[1.02]"
-                >
-                  {isTeacher ? 'Launch Class' : 'Join Now'}
+            <div className="p-6 space-y-3 pt-6">
+              <Button size="lg" onClick={() => handleJoin(false)} className="w-full bg-indigo-500 hover:bg-indigo-400 text-white font-bold h-12 rounded-xl">
+                {isTeacher ? 'Launch Class' : 'Join Now'}
+              </Button>
+              {!isTeacher && (
+                <Button variant="ghost" size="lg" onClick={() => handleJoin(true)} className="w-full text-slate-400 hover:text-white h-12 rounded-xl">
+                  Join as Observer
                 </Button>
-                
-                {!isTeacher && (
-                  <Button 
-                    variant="ghost" 
-                    size="lg"
-                    onClick={() => handleJoin(true)}
-                    className="w-full text-slate-400 hover:text-white hover:bg-white/5 h-12 rounded-xl"
-                  >
-                    Join as Observer
-                  </Button>
-                )}
-              </div>
+              )}
             </div>
-
           </div>
         </div>
       )}
