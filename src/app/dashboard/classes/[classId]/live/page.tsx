@@ -30,7 +30,7 @@ import {
   VideoOff
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { EnhancedCanvasEditor } from '@/components/whiteboard/EnhancedCanvasEditor';
+import { CanvasEditor as EnhancedCanvasEditor } from '@/components/whiteboard/EnhancedCanvasEditor';
 
 type UserProfile = { fullName: string; role: 'student' | 'teacher' };
 type ClassDetails = { id: string; name: string; teacherId: string };
