@@ -7,7 +7,6 @@ import { doc, getDoc, collection, updateDoc, query, orderBy, limit, Query } from
 import { signOut } from "firebase/auth";
 import { useUser, useAuth, useFirestore, useCollection } from "@/firebase";
 import { timeAgo } from "@/lib/time";
-
 import {
   Avatar,
   AvatarFallback,
@@ -88,13 +87,14 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/login');
     }
   }, [user, authLoading, router]);
-  
+
   useEffect(() => {
     if (user && firestore) {
       const fetchProfile = async () => {
@@ -121,6 +121,26 @@ export default function DashboardLayout({
     }
   }, [user, firestore]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      setTheme('dark');
+    }
+  }, []);
+
   const notificationsCollectionRef = useMemo(() => {
     if (!user || !firestore) return null;
     const collectionRef = collection(firestore, "users", user.uid, "notifications");
@@ -128,7 +148,6 @@ export default function DashboardLayout({
   }, [user, firestore]);
 
   const { data: notifications } = useCollection<Notification>(notificationsCollectionRef as Query);
-  
   const unreadCount = notifications?.filter(n => !n.read).length || 0;
 
   const handleNotificationClick = async (notification: Notification) => {
@@ -147,7 +166,7 @@ export default function DashboardLayout({
     try {
       const unreadNotifications = notifications.filter(n => !n.read);
       await Promise.all(
-        unreadNotifications.map(notif => 
+        unreadNotifications.map(notif =>
           updateDoc(doc(firestore, "users", user.uid, "notifications", notif.id), { read: true })
         )
       );
@@ -166,50 +185,50 @@ export default function DashboardLayout({
   const loading = authLoading || profileLoading;
 
   const navItems = [
-    { 
-      href: "/dashboard", 
-      label: "Dashboard", 
-      icon: LayoutDashboard, 
+    {
+      href: "/dashboard",
+      label: "Dashboard",
+      icon: LayoutDashboard,
       roles: ['student', 'teacher'],
       description: "Overview and stats"
     },
-    { 
-      href: "/dashboard/classes", 
-      label: "Classes", 
-      icon: Video, 
+    {
+      href: "/dashboard/classes",
+      label: "Classes",
+      icon: Video,
       roles: ['student', 'teacher'],
       description: "Manage classes"
     },
-    { 
-      href: "/dashboard/quizzes", 
-      label: "Quizzes", 
-      icon: BookOpenCheck, 
+    {
+      href: "/dashboard/quizzes",
+      label: "Quizzes",
+      icon: BookOpenCheck,
       roles: ['student', 'teacher'],
       description: "Assessments"
     },
-    { 
-      href: "/dashboard/chat", 
-      label: "Chat", 
-      icon: MessagesSquare, 
+    {
+      href: "/dashboard/chat",
+      label: "Chat",
+      icon: MessagesSquare,
       roles: ['student', 'teacher'],
       description: "Messages"
     },
-    { 
-      href: "/dashboard/students", 
-      label: "Students", 
-      icon: Users, 
+    {
+      href: "/dashboard/students",
+      label: "Students",
+      icon: Users,
       roles: ['teacher'],
       description: "Student management"
     },
-    { 
-      href: "/dashboard/files", 
-      label: "Files", 
-      icon: Upload, 
+    {
+      href: "/dashboard/files",
+      label: "Files",
+      icon: Upload,
       roles: ['teacher'],
       description: "File uploads"
     },
   ];
-  
+
   if (loading || !profile) {
     return (
       <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-secondary/10">
@@ -233,12 +252,22 @@ export default function DashboardLayout({
     );
   }
 
+  const isLiveClass = pathname.endsWith('/live');
+
+  if (isLiveClass) {
+    return (
+      <div className="h-screen w-screen overflow-hidden bg-background">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <SidebarProvider>
-      <Sidebar className="border-r-2">
+      <Sidebar collapsible="icon" className="border-r-2">
         <SidebarHeader className="border-b-2 py-4">
-          <Link 
-            href="/dashboard" 
+          <Link
+            href="/dashboard"
             className="flex items-center gap-3 px-2 group"
           >
             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg group-hover:shadow-primary/50 transition-shadow">
@@ -252,7 +281,6 @@ export default function DashboardLayout({
             </div>
           </Link>
         </SidebarHeader>
-        
         <SidebarContent className="px-2 py-4">
           <SidebarMenu>
             <div className="space-y-1">
@@ -283,9 +311,7 @@ export default function DashboardLayout({
                 })}
             </div>
           </SidebarMenu>
-
           <Separator className="my-4" />
-
           {/* Profile Card in Sidebar */}
           <div className="mt-auto px-2">
             <Card className="border-2 bg-gradient-to-br from-primary/5 to-secondary/5">
@@ -307,12 +333,11 @@ export default function DashboardLayout({
             </Card>
           </div>
         </SidebarContent>
-
         <SidebarFooter className="border-t-2 p-2">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton 
-                asChild 
+              <SidebarMenuButton
+                asChild
                 className="h-12"
                 tooltip={{ children: "Settings", side: 'right' }}
               >
@@ -325,35 +350,33 @@ export default function DashboardLayout({
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
-
       <SidebarInset>
         <header className="flex h-16 items-center justify-between border-b-2 bg-background/95 backdrop-blur-md px-6 sticky top-0 z-50 shadow-sm">
           <div className="flex items-center gap-4">
-            <SidebarTrigger className="md:hidden" />
+            <SidebarTrigger />
             <div className="hidden md:block">
               <p className="text-sm text-muted-foreground">
-                {new Date().toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  month: 'short', 
-                  day: 'numeric' 
+                {new Date().toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'short',
+                  day: 'numeric'
                 })}
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             {/* Notifications Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
+                <Button
+                  variant="ghost"
+                  size="icon"
                   className="relative hover:bg-secondary"
                 >
                   <Bell className="h-5 w-5" />
                   {unreadCount > 0 && (
-                    <Badge 
-                      variant="destructive" 
+                    <Badge
+                      variant="destructive"
                       className="absolute -top-1 -right-1 h-5 w-5 justify-center p-0 text-xs animate-pulse"
                     >
                       {unreadCount > 9 ? '9+' : unreadCount}
@@ -365,9 +388,9 @@ export default function DashboardLayout({
                 <DropdownMenuLabel className="flex items-center justify-between">
                   <span>Notifications</span>
                   {unreadCount > 0 && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={handleMarkAllAsRead}
                       className="h-7 text-xs"
                     >
@@ -381,9 +404,9 @@ export default function DashboardLayout({
                   <DropdownMenuGroup>
                     {notifications && notifications.length > 0 ? (
                       notifications.map(notif => (
-                        <DropdownMenuItem 
-                          key={notif.id} 
-                          onSelect={() => handleNotificationClick(notif)} 
+                        <DropdownMenuItem
+                          key={notif.id}
+                          onSelect={() => handleNotificationClick(notif)}
                           className={cn(
                             "flex flex-col items-start gap-2 cursor-pointer p-4 m-1 rounded-lg",
                             !notif.read && "bg-primary/5 border border-primary/20"
@@ -420,18 +443,25 @@ export default function DashboardLayout({
                 </ScrollArea>
               </DropdownMenuContent>
             </DropdownMenu>
-
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              className="hover:bg-secondary"
+            >
+              {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </Button>
             {/* User Menu Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   className="flex items-center gap-2 h-auto py-2 px-3 hover:bg-secondary"
                 >
                   <Avatar className="h-8 w-8 border-2 border-primary/20">
-                    <AvatarImage 
-                      src={`https://avatar.vercel.sh/${profile.email}.png`} 
-                      alt={profile.name} 
+                    <AvatarImage
+                      src={`https://avatar.vercel.sh/${profile.email}.png`}
+                      alt={profile.name}
                     />
                     <AvatarFallback className="text-xs">
                       {profile.name.slice(0, 2).toUpperCase()}
@@ -473,8 +503,8 @@ export default function DashboardLayout({
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={handleLogout} 
+                <DropdownMenuItem
+                  onClick={handleLogout}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
@@ -484,7 +514,6 @@ export default function DashboardLayout({
             </DropdownMenu>
           </div>
         </header>
-
         <main className="flex-1 p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-background via-background to-secondary/5 min-h-[calc(100vh-4rem)]">
           {children}
         </main>
