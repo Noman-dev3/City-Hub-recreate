@@ -18,9 +18,10 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { useAuth } from "@/firebase";
+import { useAuth, useFirestore } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Icons } from "../icons";
+import { signInWithGoogle } from "@/firebase/auth/google";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -30,8 +31,10 @@ const formSchema = z.object({
 export function LoginForm() {
   const router = useRouter();
   const auth = useAuth();
+  const firestore = useFirestore();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -70,6 +73,22 @@ export function LoginForm() {
     }
   }
 
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+        await signInWithGoogle(auth, firestore);
+        router.push("/dashboard");
+    } catch (error: any) {
+        toast({
+            variant: "destructive",
+            title: "Google Sign-In Failed",
+            description: error.message || "An unexpected error occurred. Please try again.",
+        });
+    } finally {
+        setIsGoogleLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Form {...form}>
@@ -81,7 +100,7 @@ export function LoginForm() {
               <FormItem>
                 <FormLabel className="text-white/80 lg:text-muted-foreground">Email</FormLabel>
                 <FormControl>
-                  <Input placeholder="name@example.com" {...field} disabled={isLoading} />
+                  <Input placeholder="name@example.com" {...field} disabled={isLoading || isGoogleLoading} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -94,13 +113,13 @@ export function LoginForm() {
               <FormItem>
                 <FormLabel className="text-white/80 lg:text-muted-foreground">Password</FormLabel>
                 <FormControl>
-                  <Input type="password" placeholder="••••••••" {...field} disabled={isLoading} />
+                  <Input type="password" placeholder="••••••••" {...field} disabled={isLoading || isGoogleLoading} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <Button type="submit" className="w-full" disabled={isLoading}>
+          <Button type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
             {isLoading && <Icons.Spinner className="mr-2 h-4 w-4 animate-spin" />}
             Sign In
           </Button>
@@ -118,8 +137,12 @@ export function LoginForm() {
         </div>
       </div>
 
-      <Button variant="outline" className="w-full" disabled={isLoading}>
-        <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 23.4 172.9 61.9l-76.2 64.5C307.4 99.8 280.7 86 248 86c-84.3 0-152.3 67.8-152.3 151.4s68 151.4 152.3 151.4c98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 26.9 3.9 41.4z"></path></svg>
+      <Button variant="outline" className="w-full" disabled={isLoading || isGoogleLoading} onClick={handleGoogleSignIn}>
+        {isGoogleLoading ? (
+            <Icons.Spinner className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+            <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 23.4 172.9 61.9l-76.2 64.5C307.4 99.8 280.7 86 248 86c-84.3 0-152.3 67.8-152.3 151.4s68 151.4 152.3 151.4c98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 26.9 3.9 41.4z"></path></svg>
+        )}
         Google
       </Button>
     </div>
