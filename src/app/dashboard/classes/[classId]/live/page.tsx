@@ -359,7 +359,7 @@ export default function LiveClassPage() {
       {/* Main Layout */}
       <div className="flex flex-col h-screen bg-gray-100">
         {/* Header */}
-        <header className="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between z-10">
+        <header className="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between z-20">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
             <span className="font-semibold text-lg">{classDetails?.name}</span>
