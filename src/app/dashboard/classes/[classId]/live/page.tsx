@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useUser, useFirestore } from '@/firebase';
 import {
@@ -12,47 +12,36 @@ import {
   addDoc,
   serverTimestamp,
   getDocs,
-  deleteDoc,
 } from 'firebase/firestore';
+
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  Power,
-  PhoneOff,
-  Monitor,
-  MonitorOff,
+import { 
+  Power, 
+  PhoneOff, 
+  Monitor, 
+  MonitorOff, 
+  Mic, 
+  MicOff, 
   Circle,
-  Pencil,
-  Eraser,
-  Square,
-  CircleIcon,
-  Type,
-  Trash2,
-  Download,
-  Undo,
-  Redo,
-  Camera,
+  Presentation,
+  Video,
+  VideoOff
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-
-// RecordRTC (install: npm install recordrtc)
-import RecordRTC from 'recordrtc';
+import { EnhancedCanvasEditor } from '@/components/whiteboard/EnhancedCanvasEditor';
 
 type UserProfile = { fullName: string; role: 'student' | 'teacher' };
 type ClassDetails = { id: string; name: string; teacherId: string };
-type SessionData = { jitsiRoom?: string; isActive: boolean; recording?: boolean };
-
-type DrawElement = {
-  id: string;
-  type: 'path' | 'rect' | 'circle' | 'text';
-  data: any;
-  color: string;
-  lineWidth: number;
-  userId: string;
-  userName: string;
-  timestamp: number;
+type SessionData = { 
+  jitsiRoom?: string; 
+  isActive: boolean; 
+  recording?: boolean;
+  whiteboardActive?: boolean;
 };
+
+type ViewMode = 'video-only' | 'whiteboard-only' | 'split-view';
 
 export default function LiveClassPage() {
   const params = useParams();
@@ -62,43 +51,22 @@ export default function LiveClassPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  // User & Class State
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [classDetails, setClassDetails] = useState<ClassDetails | null>(null);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [showJoinDialog, setShowJoinDialog] = useState(false);
-
-  // UI State
-  const [showWhiteboard, setShowWhiteboard] = useState(false);
-  const [error, setError] = useState('');
-
-  // Recording State
+  const [viewMode, setViewMode] = useState<ViewMode>('video-only');
   const [isRecording, setIsRecording] = useState(false);
-  const [recorder, setRecorder] = useState<RecordRTC | null>(null);
-  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
-
-  // Whiteboard State
-  const [elements, setElements] = useState<DrawElement[]>([]);
-  const [currentTool, setCurrentTool] = useState<'pen' | 'eraser' | 'rect' | 'circle' | 'text'>('pen');
-  const [currentColor, setCurrentColor] = useState('#000000');
-  const [lineWidth, setLineWidth] = useState(2);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentPath, setCurrentPath] = useState<{ x: number; y: number }[]>([]);
-  const [undoStack, setUndoStack] = useState<DrawElement[]>([]);
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [error, setError] = useState('');
+  
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const jitsiApiRef = useRef<any>(null);
 
   const isTeacher = user?.uid === classDetails?.teacherId;
-  const jitsiRoom = `Class_${classId}`.replace(/[^a-zA-Z0-9-_]/g, '_');
-  
-  // Jitsi 8x8 Configuration
-  const VPAAS_APP_ID = 'vpaas-magic-cookie-7bb0b1ee8df54facb392382c0007102d';
-  const JWT_TOKEN = 'eyJraWQiOiJ2cGFhcy1tYWdpYy1jb29raWUtN2JiMGIxZWU4ZGY1NGZhY2IzOTIzODJjMDAwNzEwMmQvNTgxNzZiLVNBTVBMRV9BUFAiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJqaXRzaSIsImlzcyI6ImNoYXQiLCJpYXQiOjE3NjM2MDY3NDksImV4cCI6MTc2MzYxMzk0OSwibmJmIjoxNzYzNjA2NzQ0LCJzdWIiOiJ2cGFhcy1tYWdpYy1jb29raWUtN2JiMGIxZWU4ZGY1NGZhY2IzOTIzODJjMDAwNzEwMmQiLCJjb250ZXh0Ijp7ImZlYXR1cmVzIjp7ImxpdmVzdHJlYW1pbmciOnRydWUsImZpbGUtdXBsb2FkIjp0cnVlLCJvdXRib3VuZC1jYWxsIjp0cnVlLCJzaXAtb3V0Ym91bmQtY2FsbCI6ZmFsc2UsInRyYW5zY3JpcHRpb24iOnRydWUsImxpc3QtdmlzaXRvcnMiOmZhbHNlLCJyZWNvcmRpbmciOnRydWUsImZsaXAiOmZhbHNlfSwidXNlciI6eyJoaWRkZW4tZnJvbS1yZWNvcmRlciI6ZmFsc2UsIm1vZGVyYXRvciI6dHJ1ZSwibmFtZSI6Im5vbWFuLmRldjMiLCJpZCI6Imdvb2dsZS1vYXV0aDJ8MTA3ODE4MTg3NDI2MjYxNTM0OTU2IiwiYXZhdGFyIjoiIiwiZW1haWwiOiJub21hbi5kZXYzQGdtYWlsLmNvbSJ9fSwicm9vbSI6IioifQ.Vxpvi67HYphK7Mx89pyzvgOIhI5nRaI8hZJ0N1XyZL6QiHbvUME0PwfCinNLcwWzrdxBhKBJpd-GYnK2w13ByXTBAUP6XlNwn2JQM-yYtFimEojqYDXzCkktg85oCA6Izl2Zt2I3itf0BoyHBjvRqnfUMro0nei45ejWR9Me78A0MheBhu3VxUGiglHhxtr1kk_ft9WY89ZvhB1Mz7mLPnZzhQbiySftBYZAmxVgzRe8q1gULl-zaZbhD9MpzzbgqwbiuOugIfI7bcIqu4ZqKziIVqPLeZ-XrHtJrtZd9fQJNt1MfV8UUDa78rtWtstEu5025PiwaCjvnWyTepUnQg';
+  const jitsiRoom = useMemo(() => `Class_${classId}`.replace(/[^a-zA-Z0-9-_]/g, '_'), [classId]);
 
-  // ==================== FIREBASE LISTENERS ====================
+  // Firebase listeners
   useEffect(() => {
     if (!user || !firestore) return;
     const unsub = onSnapshot(doc(firestore, 'users', user.uid), (doc) => {
@@ -121,27 +89,34 @@ export default function LiveClassPage() {
       if (doc.exists()) {
         const data = doc.data() as SessionData;
         setSessionData(data);
+        setIsRecording(!!data.recording);
+        
+        // Sync whiteboard state across all users
+        if (data.whiteboardActive && viewMode === 'video-only') {
+          setViewMode('split-view');
+        } else if (!data.whiteboardActive && viewMode !== 'video-only') {
+          setViewMode('video-only');
+        }
       }
     });
     return () => unsub();
   }, [firestore, classId]);
 
-  // Listen to whiteboard elements
+  // Initialize Jitsi API for better control
   useEffect(() => {
-    if (!firestore) return;
-    const unsub = onSnapshot(
-      collection(firestore, 'classes', classId, 'whiteboard'),
-      (snapshot) => {
-        const els: DrawElement[] = [];
-        snapshot.forEach((doc) => {
-          els.push({ id: doc.id, ...doc.data() } as DrawElement);
-        });
-        els.sort((a, b) => a.timestamp - b.timestamp);
-        setElements(els);
+    if (!sessionData?.isActive || !iframeRef.current) return;
+
+    // Wait for iframe to load
+    const timer = setTimeout(() => {
+      try {
+        jitsiApiRef.current = (iframeRef.current?.contentWindow as any)?.JitsiMeetExternalAPI;
+      } catch (e) {
+        console.error('Jitsi API not ready:', e);
       }
-    );
-    return () => unsub();
-  }, [firestore, classId]);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [sessionData?.isActive]);
 
   // Auto-open join dialog
   useEffect(() => {
@@ -154,7 +129,6 @@ export default function LiveClassPage() {
     }
   }, [profile, classDetails, sessionData, isInitialized, isTeacher]);
 
-  // ==================== SESSION MANAGEMENT ====================
   const handleJoin = async (asObserver = false) => {
     if (!firestore || !user || !profile) return;
 
@@ -168,6 +142,7 @@ export default function LiveClassPage() {
           isActive: true,
           startedAt: serverTimestamp(),
           recording: false,
+          whiteboardActive: false,
         });
         await updateDoc(doc(firestore, 'classes', classId), { isLive: true });
       }
@@ -199,10 +174,6 @@ export default function LiveClassPage() {
   const handleEndSession = async () => {
     if (!firestore) return;
     try {
-      if (isRecording && recorder) {
-        stopRecording();
-      }
-
       await updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
         isActive: false,
         endedAt: serverTimestamp(),
@@ -220,9 +191,7 @@ export default function LiveClassPage() {
   const handleLeaveSession = async () => {
     if (!user || !firestore || !profile) return;
     try {
-      await updateDoc(doc(firestore, 'classes', classId, 'participants', user.uid), {
-        active: false,
-      });
+      await updateDoc(doc(firestore, 'classes', classId, 'participants', user.uid), { active: false });
       await addDoc(collection(firestore, 'classes', classId, 'messages'), {
         text: `${profile.fullName} left the class`,
         senderId: 'system',
@@ -235,223 +204,64 @@ export default function LiveClassPage() {
     router.push(`/dashboard/classes/${classId}`);
   };
 
-  // ==================== RECORDING (RecordRTC) ====================
-  const startRecording = async () => {
-    try {
-      // Get display + audio stream
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { mediaSource: 'screen' },
-        audio: true,
-      });
-
-      streamRef.current = displayStream;
-
-      const recordRTC = new RecordRTC(displayStream, {
-        type: 'video',
-        mimeType: 'video/webm',
-        bitsPerSecond: 128000,
-      });
-
-      recordRTC.startRecording();
-      setRecorder(recordRTC);
-      setIsRecording(true);
-      toast({ title: 'Recording started!' });
-
-      if (firestore) {
-        await updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
-          recording: true,
-          recordingStartedAt: serverTimestamp(),
-        });
-      }
-    } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: 'Recording failed',
-        description: 'Please allow screen sharing',
-      });
+  const toggleRecording = async () => {
+    if (!isTeacher || !jitsiApiRef.current) {
+      toast({ variant: 'destructive', title: 'Recording API not ready yet' });
+      return;
     }
-  };
 
-  const stopRecording = () => {
-    if (!recorder) return;
-
-    recorder.stopRecording(() => {
-      const blob = recorder.getBlob();
-      setRecordedChunks([blob]);
-      setIsRecording(false);
-
-      // Download automatically
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `class-recording-${Date.now()}.webm`;
-      document.body.appendChild(a);
-      a.click();
-      URL.revokeObjectURL(url);
-
-      toast({ title: 'Recording saved!' });
-
-      if (firestore) {
-        updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
+    try {
+      if (isRecording) {
+        await jitsiApiRef.current.executeCommand('stopRecording', 'file');
+        await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), {
           recording: false,
           recordingStoppedAt: serverTimestamp(),
         });
+        toast({ title: 'Recording stopped' });
+      } else {
+        await jitsiApiRef.current.executeCommand('startRecording', { mode: 'file' });
+        await updateDoc(doc(firestore!, 'classes', classId, 'session', 'current'), {
+          recording: true,
+          recordingStartedAt: serverTimestamp(),
+        });
+        toast({ title: 'Recording started!' });
       }
+    } catch (err) {
+      toast({ 
+        variant: 'destructive', 
+        title: 'Recording failed', 
+        description: 'Make sure recording is enabled in your 8x8 dashboard' 
+      });
+    }
+  };
 
-      // Clean up stream
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
+  const toggleWhiteboard = async () => {
+    if (!isTeacher || !firestore) return;
+
+    const newMode: ViewMode = viewMode === 'video-only' ? 'split-view' : 'video-only';
+    setViewMode(newMode);
+
+    // Sync whiteboard state to all participants
+    await updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
+      whiteboardActive: newMode !== 'video-only',
+    });
+
+    toast({ 
+      title: newMode === 'video-only' ? 'Whiteboard hidden' : 'Whiteboard shown',
+      description: newMode !== 'video-only' ? 'All participants can now see the whiteboard' : undefined
     });
   };
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
+  const cycleViewMode = () => {
+    const modes: ViewMode[] = ['video-only', 'split-view', 'whiteboard-only'];
+    const currentIndex = modes.indexOf(viewMode);
+    const nextMode = modes[(currentIndex + 1) % modes.length];
+    setViewMode(nextMode);
   };
 
-  // ==================== WHITEBOARD DRAWING ====================
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear and redraw all elements
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    elements.forEach((el) => {
-      ctx.strokeStyle = el.color;
-      ctx.lineWidth = el.lineWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (el.type === 'path') {
-        ctx.beginPath();
-        el.data.forEach((pt: { x: number; y: number }, i: number) => {
-          if (i === 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
-        });
-        ctx.stroke();
-      } else if (el.type === 'rect') {
-        ctx.strokeRect(el.data.x, el.data.y, el.data.w, el.data.h);
-      } else if (el.type === 'circle') {
-        ctx.beginPath();
-        ctx.arc(el.data.x, el.data.y, el.data.r, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (el.type === 'text') {
-        ctx.font = '20px Arial';
-        ctx.fillStyle = el.color;
-        ctx.fillText(el.data.text, el.data.x, el.data.y);
-      }
-    });
-  }, [elements]);
-
-  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!user || !profile) return;
-    const pos = getMousePos(e);
-    setIsDrawing(true);
-
-    if (currentTool === 'pen' || currentTool === 'eraser') {
-      setCurrentPath([pos]);
-    } else if (currentTool === 'text') {
-      const text = prompt('Enter text:');
-      if (text && firestore) {
-        addDoc(collection(firestore, 'classes', classId, 'whiteboard'), {
-          type: 'text',
-          data: { text, x: pos.x, y: pos.y },
-          color: currentColor,
-          lineWidth: lineWidth,
-          userId: user.uid,
-          userName: profile.fullName,
-          timestamp: Date.now(),
-        });
-      }
-      setIsDrawing(false);
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !user || !profile) return;
-    const pos = getMousePos(e);
-
-    if (currentTool === 'pen' || currentTool === 'eraser') {
-      setCurrentPath((prev) => [...prev, pos]);
-    }
-  };
-
-  const handleMouseUp = async () => {
-    if (!isDrawing || !user || !profile || !firestore) return;
-    setIsDrawing(false);
-
-    if (currentTool === 'pen' || currentTool === 'eraser') {
-      if (currentPath.length > 1) {
-        await addDoc(collection(firestore, 'classes', classId, 'whiteboard'), {
-          type: 'path',
-          data: currentPath,
-          color: currentTool === 'eraser' ? '#FFFFFF' : currentColor,
-          lineWidth: currentTool === 'eraser' ? 20 : lineWidth,
-          userId: user.uid,
-          userName: profile.fullName,
-          timestamp: Date.now(),
-        });
-      }
-      setCurrentPath([]);
-    }
-  };
-
-  const clearWhiteboard = async () => {
-    if (!firestore) return;
-    const snapshot = await getDocs(collection(firestore, 'classes', classId, 'whiteboard'));
-    snapshot.forEach((doc) => deleteDoc(doc.ref));
-    toast({ title: 'Whiteboard cleared' });
-  };
-
-  const downloadWhiteboard = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const url = canvas.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `whiteboard-${Date.now()}.png`;
-    a.click();
-    toast({ title: 'Whiteboard saved!' });
-  };
-
-  const captureWhiteboard = () => {
-    if (!canvasRef.current) return;
-    
-    canvasRef.current.toBlob((blob) => {
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `whiteboard-snapshot-${Date.now()}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast({ title: 'Snapshot captured!' });
-      }
-    });
-  };
-
-  // ==================== RENDER ====================
   const isLoading = userLoading || !profile || !classDetails || (!isInitialized && !showJoinDialog);
-  const jitsiUrl = `https://8x8.vc/vpaas-magic-cookie-7bb0b1ee8df54facb392382c0007102d/${jitsiRoom}#config.startWithVideoMuted=false&config.startWithAudioMuted=false`;
+
+  const jitsiUrl = `https://8x8.vc/vpaas-magic-cookie-7bb0b1ee8df54facb392382c0007102d/${jitsiRoom}#config.startWithVideoMuted=true&config.startWithAudioMuted=false&interfaceConfig.SHOW_CHROME_EXTENSION_BANNER=false`;
 
   if (isLoading) {
     return (
@@ -471,13 +281,18 @@ export default function LiveClassPage() {
             <h2 className="text-2xl font-bold mb-4">
               {isTeacher ? 'Start Live Class' : 'Join Class'}
             </h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              {isTeacher 
+                ? 'Start the live session for your students' 
+                : 'Join the ongoing live class session'}
+            </p>
             <div className="flex gap-3 mt-6">
               <Button size="lg" onClick={() => handleJoin(false)} className="flex-1">
                 {isTeacher ? 'Start Class' : 'Join'}
               </Button>
               {!isTeacher && (
                 <Button size="lg" variant="outline" onClick={() => handleJoin(true)}>
-                  Observer
+                  Observer Mode
                 </Button>
               )}
             </div>
@@ -501,6 +316,20 @@ export default function LiveClassPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* View Mode Toggle (for all users) */}
+            {sessionData?.whiteboardActive && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={cycleViewMode}
+                className="gap-2"
+              >
+                {viewMode === 'video-only' && <><Video className="w-4 h-4" /> Video Only</>}
+                {viewMode === 'split-view' && <><Monitor className="w-4 h-4" /> Split View</>}
+                {viewMode === 'whiteboard-only' && <><Presentation className="w-4 h-4" /> Whiteboard</>}
+              </Button>
+            )}
+
             {isTeacher && (
               <>
                 <Button
@@ -509,25 +338,26 @@ export default function LiveClassPage() {
                   onClick={toggleRecording}
                   className="gap-2"
                 >
-                  <Circle className="w-4 h-4" />
-                  {isRecording ? 'Stop Rec' : 'Record'}
+                  {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {isRecording ? 'Stop Recording' : 'Record'}
                 </Button>
 
                 <Button
                   size="sm"
-                  variant={showWhiteboard ? 'default' : 'outline'}
-                  onClick={() => setShowWhiteboard(!showWhiteboard)}
+                  variant={viewMode !== 'video-only' ? 'default' : 'outline'}
+                  onClick={toggleWhiteboard}
                   className="gap-2"
                 >
-                  {showWhiteboard ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-                  Board
+                  {viewMode !== 'video-only' ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+                  {viewMode !== 'video-only' ? 'Hide Board' : 'Show Board'}
                 </Button>
 
                 <Button size="sm" variant="destructive" onClick={handleEndSession}>
-                  <Power className="w-4 h-4 mr-2" /> End
+                  <Power className="w-4 h-4 mr-2" /> End for All
                 </Button>
               </>
             )}
+            
             {!isTeacher && (
               <Button size="sm" variant="destructive" onClick={handleLeaveSession}>
                 <PhoneOff className="w-4 h-4 mr-2" /> Leave
@@ -538,131 +368,52 @@ export default function LiveClassPage() {
 
         {/* Main Content */}
         <div className="flex-1 flex relative overflow-hidden">
-          {/* Jitsi Video */}
-          <div
+          {/* Jitsi Video Container */}
+          <div 
             className={`transition-all duration-300 ${
-              showWhiteboard ? 'w-1/2' : 'w-full'
-            } h-full`}
+              viewMode === 'video-only' ? 'w-full' :
+              viewMode === 'split-view' ? 'w-1/2' :
+              'w-0 opacity-0'
+            }`}
           >
             {error && (
               <Alert variant="destructive" className="m-4">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-
-            <iframe
-              ref={iframeRef}
-              src={sessionData?.isActive ? jitsiUrl : undefined}
-              className="w-full h-full"
-              allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write"
-              allowFullScreen
-              title="Jitsi Meet"
-            />
-
-            {!sessionData?.isActive && (
+            
+            {sessionData?.isActive ? (
+              <iframe
+                ref={iframeRef}
+                src={jitsiUrl}
+                className="w-full h-full"
+                allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write"
+                allowFullScreen
+                title="Jitsi Meet"
+              />
+            ) : (
               <div className="w-full h-full bg-gray-900 flex items-center justify-center text-white text-xl">
-                Waiting for teacher to start...
+                Waiting for teacher to start the session...
               </div>
             )}
           </div>
 
-          {/* Whiteboard Panel */}
-          {showWhiteboard && (
-            <div className="w-1/2 h-full bg-white shadow-2xl flex flex-col">
-              {/* Whiteboard Toolbar */}
-              <div className="bg-gray-800 text-white p-3 flex justify-between items-center">
-                <h3 className="font-bold">Collaborative Whiteboard</h3>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant={currentTool === 'pen' ? 'default' : 'ghost'}
-                    onClick={() => setCurrentTool('pen')}
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={currentTool === 'eraser' ? 'default' : 'ghost'}
-                    onClick={() => setCurrentTool('eraser')}
-                  >
-                    <Eraser className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={currentTool === 'rect' ? 'default' : 'ghost'}
-                    onClick={() => setCurrentTool('rect')}
-                  >
-                    <Square className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={currentTool === 'circle' ? 'default' : 'ghost'}
-                    onClick={() => setCurrentTool('circle')}
-                  >
-                    <CircleIcon className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={currentTool === 'text' ? 'default' : 'ghost'}
-                    onClick={() => setCurrentTool('text')}
-                  >
-                    <Type className="w-4 h-4" />
-                  </Button>
-
-                  <input
-                    type="color"
-                    value={currentColor}
-                    onChange={(e) => setCurrentColor(e.target.value)}
-                    className="w-8 h-8 rounded cursor-pointer"
-                  />
-
-                  <select
-                    value={lineWidth}
-                    onChange={(e) => setLineWidth(Number(e.target.value))}
-                    className="bg-gray-700 text-white rounded px-2"
-                  >
-                    <option value={1}>Thin</option>
-                    <option value={2}>Normal</option>
-                    <option value={5}>Thick</option>
-                    <option value={10}>Extra</option>
-                  </select>
-
-                  <Button size="sm" variant="ghost" onClick={captureWhiteboard}>
-                    <Camera className="w-4 h-4" />
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={downloadWhiteboard}>
-                    <Download className="w-4 h-4" />
-                  </Button>
-                  {isTeacher && (
-                    <Button size="sm" variant="ghost" onClick={clearWhiteboard}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowWhiteboard(false)}
-                  >
-                    ✕
-                  </Button>
-                </div>
-              </div>
-
-              {/* Canvas */}
-              <div className="flex-1 overflow-hidden bg-white">
-                <canvas
-                  ref={canvasRef}
-                  width={1200}
-                  height={800}
-                  className="w-full h-full cursor-crosshair"
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                />
-              </div>
-            </div>
-          )}
+          {/* Whiteboard Container */}
+          <div 
+            className={`transition-all duration-300 bg-white ${
+              viewMode === 'video-only' ? 'w-0 opacity-0' :
+              viewMode === 'split-view' ? 'w-1/2 border-l-2' :
+              'w-full'
+            }`}
+          >
+            {viewMode !== 'video-only' && user && (
+              <EnhancedCanvasEditor 
+                classId={classId}
+                isTeacher={isTeacher}
+                userId={user.uid}
+              />
+            )}
+          </div>
         </div>
       </div>
     </>
