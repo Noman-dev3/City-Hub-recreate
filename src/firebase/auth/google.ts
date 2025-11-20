@@ -1,4 +1,4 @@
-'use server';
+
 import {
   Auth,
   GoogleAuthProvider,
