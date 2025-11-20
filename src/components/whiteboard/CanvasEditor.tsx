@@ -296,26 +296,32 @@ export function CanvasEditor({ className, options, classId, isTeacher, userId }:
     };
   }, [options]);
 
-  // Firebase real-time sync (for students)
+  // Firebase real-time sync - Load initial data for teacher, continuous sync for students
   useEffect(() => {
-    if (!firestore || !editor || !classId || isTeacher) return;
+    if (!firestore || !editor || !classId) return;
 
-    console.log('👂 Student listening for whiteboard updates...');
+    console.log(isTeacher ? '👨‍🏫 Teacher loading whiteboard data...' : '👂 Student listening for whiteboard updates...');
 
     const unsubscribe = onSnapshot(
       doc(firestore, 'classes', classId, 'whiteboard', 'current'),
       (snapshot) => {
-        if (!snapshot.exists()) return;
+        if (!snapshot.exists()) {
+          console.log('📝 No existing whiteboard data');
+          return;
+        }
         
         const data = snapshot.data();
-        if (data.updatedBy === userId) return; // Skip own updates
+        
+        // Skip own updates (mainly for teachers to avoid loops)
+        if (data.updatedBy === userId && isTeacher) return;
 
-        console.log('📥 Received whiteboard update from teacher');
+        console.log('📥 Loading whiteboard data');
         setIsUpdating(true);
         
         editor.loadFromJSON(data.canvasData, () => {
           editor.renderAll();
           setIsUpdating(false);
+          console.log('✅ Whiteboard loaded successfully');
         });
       },
       (error) => {
