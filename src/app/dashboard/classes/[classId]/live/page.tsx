@@ -332,7 +332,7 @@ export default function LiveClassPage() {
   return (
     <>
       {/* Join Dialog */}
-      {showJoinDialog && (
+      {showJoinDialog && 
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-900 p-8 rounded-xl shadow-2xl max-w-sm w-full mx-4">
             <h2 className="text-2xl font-bold mb-4">
@@ -355,7 +355,7 @@ export default function LiveClassPage() {
             </div>
           </div>
         </div>
-      )}
+      }
       {/* Main Layout */}
       <div className="flex flex-col h-screen bg-gray-100">
         {/* Header */}
