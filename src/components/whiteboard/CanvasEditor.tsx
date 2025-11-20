@@ -112,7 +112,7 @@ function recognizeShape(path: fabric.Path): fabric.Object | null {
   }
 }
 
-export function EnhancedCanvasEditor({ className, options, classId, isTeacher, userId }: IProps) {
+export function CanvasEditor({ className, options, classId, isTeacher, userId }: IProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const firestore = useFirestore();
