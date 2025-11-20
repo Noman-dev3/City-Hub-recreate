@@ -229,8 +229,21 @@ export default function LiveClassPage() {
           };
         });
 
+        // Determine supported MIME type, preferring MP4
+        const mimeTypes = [
+          'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+          'video/mp4;codecs=avc1',
+          'video/mp4',
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8,opus',
+          'video/webm;codecs=opus',
+          'video/webm',
+        ];
+        const supportedMime = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+        const fileExtension = supportedMime.includes('mp4') ? 'mp4' : 'webm';
+
         // Set up MediaRecorder
-        recorderRef.current = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        recorderRef.current = new MediaRecorder(stream, { mimeType: supportedMime });
         recordingChunksRef.current = [];
 
         recorderRef.current.ondataavailable = (e) => {
@@ -240,11 +253,11 @@ export default function LiveClassPage() {
         };
 
         recorderRef.current.onstop = () => {
-          const blob = new Blob(recordingChunksRef.current, { type: 'video/webm' });
+          const blob = new Blob(recordingChunksRef.current, { type: supportedMime });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `class_${classId}_recording.webm`;
+          a.download = `class_${classId}_recording.${fileExtension}`;
           a.click();
           URL.revokeObjectURL(url);
           recordingChunksRef.current = [];
@@ -266,7 +279,10 @@ export default function LiveClassPage() {
         });
 
         setIsRecording(true);
-        toast({ title: 'Recording started!', description: 'Share the browser window or tab containing the class video for best results.' });
+        toast({ 
+          title: 'Recording started!', 
+          description: `Recording in ${fileExtension.toUpperCase()} format. Share the browser window or tab containing the class video for best results.` 
+        });
       } catch (err) {
         console.error('Failed to start recording:', err);
         toast({ variant: 'destructive', title: 'Failed to start recording', description: 'Please allow screen and audio sharing.' });
