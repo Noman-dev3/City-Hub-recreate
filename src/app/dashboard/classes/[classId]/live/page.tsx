@@ -164,6 +164,9 @@ export default function LiveClassPage() {
   const handleEndSession = async () => {
     if (!firestore) return;
     try {
+      if (isRecording) {
+        await toggleRecording(); // Stop recording and auto-download before ending session
+      }
       await updateDoc(doc(firestore, 'classes', classId, 'session', 'current'), {
         isActive: false,
         endedAt: serverTimestamp(),
@@ -181,6 +184,9 @@ export default function LiveClassPage() {
   const handleLeaveSession = async () => {
     if (!user || !firestore || !profile) return;
     try {
+      if (isTeacher && isRecording) {
+        await toggleRecording(); // If teacher leaves while recording, stop and download
+      }
       await updateDoc(doc(firestore, 'classes', classId, 'participants', user.uid), { active: false });
       await addDoc(collection(firestore, 'classes', classId, 'messages'), {
         text: `${profile.fullName} left the class`,
@@ -211,7 +217,7 @@ export default function LiveClassPage() {
         recordingStoppedAt: serverTimestamp(),
       });
       setIsRecording(false);
-      toast({ title: 'Recording stopped' });
+      toast({ title: 'Recording stopped and downloading...' });
     } else {
       try {
         // Prompt user to share screen/window/tab with audio
