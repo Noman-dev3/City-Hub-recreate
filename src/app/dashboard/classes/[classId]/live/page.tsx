@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Video, Mic, MicOff, VideoOff, PhoneOff, Users, Shield, Circle, Monitor, MonitorOff } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
