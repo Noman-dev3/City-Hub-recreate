@@ -1,21 +1,24 @@
 'use client';
 
 import { useUser, useFirestore } from "@/firebase";
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc, updateDoc } from "firebase/firestore";
 import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import { 
   BookOpenCheck, Users, Video, TrendingUp, Clock, 
   Award, Target, Calendar, Activity, Sparkles,
-  ArrowRight, Plus, Play
+  ArrowRight, Plus, Play, UserCheck
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { Icons } from "@/components/icons";
 
 type UserProfile = {
   role: 'student' | 'teacher';
@@ -63,6 +66,9 @@ export default function DashboardPage() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [stats, setStats] = useState<TeacherStats | StudentStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const { toast } = useToast();
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -231,6 +237,42 @@ export default function DashboardPage() {
       fetchStudentStats();
     }
   }, [profile, user, firestore]);
+
+  const handleVerification = async () => {
+    if (!user || !firestore || verificationCode.trim() === "") return;
+
+    if (verificationCode.trim() !== "cityteacher2021") {
+      toast({
+        variant: "destructive",
+        title: "Invalid Code",
+        description: "The verification code is incorrect. Please try again.",
+      });
+      return;
+    }
+
+    setIsVerifying(true);
+    try {
+      const userDocRef = doc(firestore, "users", user.uid);
+      await updateDoc(userDocRef, {
+        role: "teacher"
+      });
+      toast({
+        title: "Verification Successful!",
+        description: "You are now a teacher. The page will reload.",
+      });
+      // A simple way to refresh the page and its data
+      window.location.reload();
+    } catch (error) {
+      console.error("Error verifying teacher:", error);
+      toast({
+        variant: "destructive",
+        title: "Verification Failed",
+        description: "An error occurred. Please try again.",
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const isLoading = userLoading || profileLoading || statsLoading;
 
@@ -551,6 +593,34 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        {/* Verification Panel */}
+        <Card className="border-2 border-dashed shadow-lg bg-gradient-to-tr from-secondary/30 to-background">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <UserCheck className="h-5 w-5 text-primary"/>
+                    Are you a Teacher?
+                </CardTitle>
+                <CardDescription>
+                    If you have a verification code, enter it here to gain access to teacher privileges.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="flex w-full max-w-sm items-center space-x-2">
+                    <Input 
+                        type="text" 
+                        placeholder="Verification Code" 
+                        value={verificationCode}
+                        onChange={(e) => setVerificationCode(e.target.value)}
+                        disabled={isVerifying}
+                    />
+                    <Button type="submit" onClick={handleVerification} disabled={isVerifying}>
+                        {isVerifying && <Icons.Spinner className="mr-2 h-4 w-4 animate-spin" />}
+                        Verify
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
+
         <div className="grid gap-6 md:grid-cols-2">
           {/* Live Classes */}
           {studentStats.enrolledClasses.filter(cls => cls.isLive).length > 0 && (
@@ -791,4 +861,4 @@ export default function DashboardPage() {
       {profile?.role === 'teacher' ? renderTeacherDashboard() : renderStudentDashboard()}
     </div>
   );
-}
+              }
