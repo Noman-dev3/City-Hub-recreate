@@ -1,3 +1,4 @@
+"use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { Video, MessageSquare, Users, Send, AlertCircle } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
