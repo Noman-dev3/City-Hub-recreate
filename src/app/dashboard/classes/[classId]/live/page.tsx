@@ -103,9 +103,9 @@ const LiveClassPage: React.FC = () => {
       console.error('Error adding participant:', error);
     }
 
-    // Load Jitsi script
+    // Load JaaS 8x8 script with your app ID
     const script = document.createElement('script');
-    script.src = 'https://8x8.vc/vpaas-magic-cookie-7bb0b1ee8df54facb392382c0007102d/external_api.js';
+    script.src = `https://8x8.vc/${JAAS_APP_ID}/external_api.js`;
     script.async = true;
     script.onload = () => initializeJitsi();
     document.body.appendChild(script);
@@ -123,6 +123,7 @@ const LiveClassPage: React.FC = () => {
       height: '100%',
       parentNode: jitsiContainerRef.current,
       jwt: JWT_TOKEN,
+      lang: 'en',
       configOverwrite: {
         startWithAudioMuted: false,
         startWithVideoMuted: false,
